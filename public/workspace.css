@@ -184,7 +184,7 @@ dialog::backdrop { background: #251d3366; }
 .dialog-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--ink); background: #ece5f5; }
 .dialog-header h2 { margin: 0; font-size: 1.25rem; }
 .close-dialog { width: 34px; height: 34px; padding: 0; border: 1px solid currentColor; border-radius: 5px; background: transparent; color: var(--ink); font-size: 1.25rem; }
-#dialog-content { padding: 14px; }
+#dialog-content, .cloud-dialog-content { padding: 14px; }
 .workspace-form, .form-field { display: grid; gap: 10px; }
 .form-field { gap: 4px; min-width: 0; font-size: .9375rem; font-weight: 600; }
 .form-field :is(input, textarea, select) { width: 100%; min-width: 0; padding: 7px 8px; border: 1px solid #a99ab7; border-radius: 4px; background: white; color: var(--ink); font-size: 1rem; }

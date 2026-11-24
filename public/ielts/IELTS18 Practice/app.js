@@ -15,7 +15,12 @@ let practiceClockStarted = null;
 let pageActive = true;
 
 const getKey = (test, skill, mock=false) => test + '-' + skill + (mock?'-mock':'');
-const put = () => { try { localStorage.setItem(archiveKey, JSON.stringify(attempts)); } catch {} };
+const put = () => {
+  try {
+    localStorage.setItem(archiveKey, JSON.stringify(attempts));
+    window.HarveyCloud?.changed();
+  } catch {}
+};
 const range = (a,b) => Array.from({length:b-a+1}, (_,i) => i+a);
 const esc = (s='') => String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const brand = '<span class="brand">Cambridge IELTS <span>'+edition.number+'</span></span>';
@@ -72,7 +77,7 @@ function home() {
           </div>
         </aside>
       </div>
-      <p class="note">Your answers are saved in this browser. Speaking practice is self-guided.</p>
+      <p class="note">Your answers are saved on this device and sync when Harvey Cloud is connected. Speaking practice is self-guided.</p>
     </main>`;
   document.querySelector('#browse-transcript').onclick=()=>chooseResource('transcript');
   document.querySelector('#browse-keys').onclick=()=>chooseResource('answers');
@@ -519,4 +524,16 @@ function review(hideAnswers=false) {
     ['Cancel',closeDialog],['Retry',()=>{closeDialog();delete attempts[getKey(n,skill,mock)];put();open(n,skill,mock)},true],
   ]);
 }
+window.addEventListener('storage', (event) => {
+  if (event.key !== archiveKey || !event.newValue) return;
+  try {
+    const next = JSON.parse(event.newValue);
+    const activeKey = attempt && getKey(testNumber, section, full);
+    if (activeKey && next[activeKey]) Object.assign(attempt, next[activeKey]);
+    attempts = activeKey && next[activeKey] ? {...next, [activeKey]: attempt} : next;
+    if (!attempt && !dialog.open) home();
+    else if (activeKey && !next[activeKey] && !dialog.open) home();
+  } catch {}
+});
+
 home();

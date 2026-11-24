@@ -90,7 +90,7 @@
 
         <section class="settings-card">
           <h2 class="card-title">Cloud sync</h2>
-          <p class="note">Set up Supabase and use the same credentials and sync code on each device to merge your word library and progress.</p>
+          <p class="note">Use the original project and sync code to recover your previous vocabulary. Once Harvey Cloud is connected, this panel only imports old progress and new progress syncs through your Harvey account.</p>
           <div class="form-grid">
             <div class="form-item"><label for="syncUrl">Supabase project URL</label><input type="url" id="syncUrl" placeholder="https://example.supabase.co"></div>
             <div class="form-item"><label for="syncKey">Publishable key</label><input type="password" id="syncKey" placeholder="sb_publishable_…"></div>
@@ -143,6 +143,7 @@
   </div>
 
 
+<script src="../harvey-cloud.js"></script>
 <script>
 (function(){
   "use strict";
@@ -442,6 +443,7 @@
     for(var i=0;i<items.length;i++){
       var key = items[i][0].toLowerCase();
       state.words[key] = defaultWord(items[i][1],items[i][2]);
+      state.words[key].updatedAt = 1;
       state.words[key].word = items[i][0];
     }
   }
@@ -800,6 +802,7 @@
   function save(){
     var raw = JSON.stringify(state);
     try { localStorage.setItem(LS_KEY, raw); } catch(e){}
+    window.HarveyCloud?.changed();
     idbSet("state", raw);           // 第二层：IndexedDB（fire-and-forget）
     diskWrite("背单词进度.json", raw); // 第三层：磁盘（fire-and-forget，授权后生效）
     scheduleCloudSync();
@@ -835,20 +838,30 @@
     var c=getSyncConfig();
     if(!validSyncConfig(c)) return Promise.reject(new Error("Enter the project URL, publishable key and sync code."));
     if(cloudSyncBusy) return Promise.resolve();
+    var importOnly=window.HarveyCloud?.enabled();
     cloudSyncBusy=true; if(showStatus) showSyncState("Merging cloud progress…",false);
     return syncRequest(c,"pull_vocab",{p_sync_id:c.id}).then(function(rows){
       var remote=Array.isArray(rows)&&rows[0] ? rows[0].data : null;
+      if(importOnly && !remote?.words) throw new Error("No old progress found.");
+      if(importOnly){
+        Object.keys(state.words).forEach(function(key){
+          if(state.words[key].updatedAt===1 && !Object.hasOwn(remote.words,key)) delete state.words[key];
+        });
+      }
       state=mergeStates(state,remote); migrateState();
       var raw=JSON.stringify(state);
       try{localStorage.setItem(LS_KEY,raw);}catch(e){} idbSet("state",raw); diskWrite("背单词进度.json",raw);
+      window.HarveyCloud?.changed();
+      if(importOnly || window.HarveyCloud?.enabled()) return;
       return syncRequest(c,"push_vocab",{p_sync_id:c.id,p_data:state});
     }).then(function(){
       c.lastSync=Date.now(); setSyncConfig(c); cloudSyncBusy=false;
-      if(showStatus) showSyncState("Synced at "+new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),true);
+      if(showStatus) showSyncState((importOnly ? "Old progress imported at " : "Synced at ")+new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),true);
       if(showStatus){ startStudy(); renderLibrary($("search")?$("search").value:""); }
     }).catch(function(err){ cloudSyncBusy=false; if(showStatus) showSyncState("Sync failed. Check your settings or connection.",false); throw err; });
   }
   function scheduleCloudSync(){
+    if(window.HarveyCloud?.enabled()) return;
     var c=getSyncConfig(); if(!validSyncConfig(c) || cloudSyncBusy) return;
     clearTimeout(cloudSyncTimer); cloudSyncTimer=setTimeout(function(){ cloudSyncNow(false).catch(function(){}); },2500);
   }
@@ -1556,7 +1569,7 @@
     bindEvents();
     if(repaired) save();
     if(state.settings.autoEnrich && phoneticRepairKeys.length) enrichWords(phoneticRepairKeys.slice());
-    if(validSyncConfig(syncCfg)) cloudSyncNow(true).catch(function(){});
+    if(validSyncConfig(syncCfg) && !window.HarveyCloud?.enabled()) cloudSyncNow(true).catch(function(){});
     // 若已授权目录，自动读取单词.txt（静默同步新词）
     if(fsSupported()) getDirHandle().then(function(dir){
       if(dir) diskRead("单词.txt").then(function(txt){
@@ -1574,7 +1587,8 @@
     // 回退到 IndexedDB / 磁盘
     var p = idbGet("state").then(function(r){ if(!r) return diskRead("背单词进度.json"); return r; });
     p.then(function(r){
-      st = tryParse(r);
+      try { st = tryParse(localStorage.getItem(LS_KEY)) || tryParse(r); }
+      catch(e) { st = tryParse(r); }
       if(st && st.words){
         state = st;
         try { localStorage.setItem(LS_KEY, JSON.stringify(st)); } catch(e){}
@@ -1588,6 +1602,18 @@
     });
   }
 
+  window.addEventListener("storage",function(event){
+    if(event.key!==LS_KEY || !state || !event.newValue) return;
+    var next=tryParse(event.newValue);
+    if(!next || !next.words) return;
+    state=next;
+    migrateState();
+    idbSet("state",JSON.stringify(state));
+    $("newPerDay").value=state.settings.newPerDay;
+    $("autoEnrich").checked=state.settings.autoEnrich;
+    startStudy();
+    renderLibrary($("search").value);
+  });
   init();
   if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
     navigator.serviceWorker.register("./sw.js",{updateViaCache:"none"}).then(function(reg){reg.update().catch(function(){});}).catch(function(){});

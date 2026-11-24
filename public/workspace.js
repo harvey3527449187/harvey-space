@@ -85,6 +85,7 @@ function persist(next, recovering = false) {
   try {
     if (storageBroken && !recovering) return false;
     localStorage.setItem(storageKey, snapshot(next));
+    window.HarveyCloud?.changed();
   } catch {
     $("storage-notice").hidden = false;
     $("storage-notice").textContent = "浏览器未能保存更改。请检查存储权限或剩余空间。";
@@ -438,7 +439,7 @@ function focusItem(id) {
 }
 
 function showSettings() {
-  showDialog("数据管理", '<p class="dialog-info">工作台数据保存在当前浏览器。导出备份后，可在另一台设备或浏览器导入。</p>' +
+  showDialog("数据管理", '<p class="dialog-info">工作台记录保存在当前浏览器。可以在「全站云同步」里开启跨设备同步，也可以手动导出备份。</p>' +
     '<div class="quick-options"><button class="action" type="button" data-action="export">导出备份</button>' +
     '<button class="action" type="button" data-action="import">导入备份</button></div>');
 }

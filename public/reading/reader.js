@@ -15,10 +15,10 @@
     catch { return {}; }
   }
   const stored = readStorage();
-  const settings = {...defaults, ...stored.settings};
-  const places = stored.places || {};
-  const bookmarks = stored.bookmarkLocations && !Array.isArray(stored.bookmarkLocations) ? stored.bookmarkLocations : {};
-  const highlights = stored.highlights && !Array.isArray(stored.highlights) ? stored.highlights : {};
+  let settings = {...defaults, ...stored.settings};
+  let places = stored.places || {};
+  let bookmarks = stored.bookmarkLocations && !Array.isArray(stored.bookmarkLocations) ? stored.bookmarkLocations : {};
+  let highlights = stored.highlights && !Array.isArray(stored.highlights) ? stored.highlights : {};
   if (!stored.bookmarkLocations && Array.isArray(stored.bookmarks)) {
     for (const book of books) {
       const legacy = stored.bookmarks.filter(item => typeof item === 'string' && item.startsWith(book.id + '/'));
@@ -59,6 +59,7 @@
       localStorage.setItem(storageKey, JSON.stringify({
         last: app.book.id, settings, places, bookmarkLocations: bookmarks, highlights,
       }));
+      window.HarveyCloud?.changed();
     } catch {}
   }
 
@@ -684,6 +685,19 @@
     app.progressTimer = setTimeout(() => progress(true), 140);
   }, {passive: true});
   window.addEventListener('pagehide', () => progress(true));
+  window.addEventListener('storage', (event) => {
+    if (event.key !== storageKey || !event.newValue) return;
+    const next = readStorage();
+    settings = {...defaults, ...next.settings};
+    places = next.places || {};
+    bookmarks = next.bookmarkLocations || {};
+    highlights = next.highlights || {};
+    applySettings();
+    updateBookmark();
+    renderNavigation();
+    renderProse();
+    if (app.inspector?.mode === 'highlights') renderInspector();
+  });
   window.addEventListener('popstate', () => {
     const route = fromHash();
     if (route) navigate(route.book, route.position, {resume: true});
