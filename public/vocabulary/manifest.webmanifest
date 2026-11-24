@@ -1,0 +1,10 @@
+{
+  "name": "Vocabulary · Harvey Space",
+  "short_name": "Vocabulary",
+  "description": "A personal word library with spelling practice and spaced review.",
+  "start_url": "./背单词.html",
+  "display": "standalone",
+  "background_color": "#faf6f4",
+  "theme_color": "#faf6f4",
+  "lang": "en"
+}

@@ -1,0 +1,70 @@
+:root {
+  color-scheme: light;
+  --paper: #f7f4fa;
+  --sheet: #fff;
+  --ink: #241b32;
+  --muted: #5d526b;
+  --line: #e3dbea;
+  --blue: #51417d;
+  --ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --nav-ink: #51417d;
+  --nav-accent: #51417d;
+  --nav-hover-line: #a798c0;
+  --nav-hover-bg: #f1eafa;
+  font: 16px/1.5 var(--ui);
+  color: var(--ink);
+  background: var(--paper);
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: inherit; }
+a:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+.shell { width: min(1490px, calc(100% - clamp(36px, 6vw, 96px))); margin-inline: auto; }
+.site-header { border-bottom: 1px solid var(--line); background: var(--sheet); }
+.masthead { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.home { white-space: nowrap; }
+.external { text-align: right; }
+.intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, .38fr);
+  align-items: end;
+  gap: 1.25rem clamp(24px, 4vw, 58px);
+  margin-top: clamp(1.2rem, 4vw, 2.65rem);
+  padding: clamp(1.4rem, 4.7vw, 3.5rem);
+  background: linear-gradient(115deg, #fff 18%, #f2eaf8 77%, #eee5f5);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+.eyebrow { margin: 0 0 .65rem; color: var(--blue); font-size: .78rem; font-weight: 700; letter-spacing: .04em; }
+h1 { margin: 0; font: 680 clamp(2.2rem, 6.8vw, 6.25rem)/1.03 var(--ui); letter-spacing: -.06em; }
+h1 span { color: var(--blue); }
+.intro-main > p:last-child { margin: .7rem 0 0; color: var(--muted); font-size: clamp(.94rem, 1.5vw, 1.065rem); }
+.practice-formats { margin: 0; padding-inline-start: clamp(14px, 2.5vw, 36px); border-inline-start: 1px solid #d3c6e0; display: grid; gap: .85rem; }
+.practice-formats dt { color: var(--blue); font-weight: 700; font-size: .9rem; }
+.practice-formats dd { margin: .15rem 0 0; color: var(--muted); font-size: .9rem; }
+.catalogue { padding-block: 1.75rem 2rem; }
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .25rem 1rem; margin-bottom: .9rem; }
+h2 { margin: 0; font: 660 clamp(1.3rem, 3vw, 1.7rem)/1.2 var(--ui); letter-spacing: -.035em; }
+.section-heading p, .footer { margin-block: 0; color: var(--muted); font-size: .875rem; }
+.book-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.book { display: grid; grid-template-columns: minmax(115px, 36%) minmax(0, 1fr); min-height: clamp(196px, 18vw, 254px); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; text-decoration: none; background: var(--sheet); }
+.book:is(:hover, :focus-visible) { border-color: #a798c0; box-shadow: 0 6px 22px #51417d19; }
+.cover { display: grid; align-items: center; justify-items: center; padding: 1.2rem; }
+.cover-17 { background: #f2e8e5; }
+.cover-18 { background: #eae2f3; }
+.cover img { width: min(100%, 144px); height: auto; max-height: 195px; object-fit: contain; border-radius: 3px; box-shadow: 3px 6px 12px #2c18482e; }
+.book-body { display: flex; flex-direction: column; align-items: flex-start; padding: clamp(1rem, 2.3vw, 1.65rem); }
+h3 { margin: 0; font: 660 clamp(1.15rem, 2.3vw, 2.02rem)/1.15 var(--ui); letter-spacing: -.038em; }
+.book-body p { margin: .65rem 0 1rem; font-size: .85rem; color: var(--muted); }
+.book-link { display: flex; align-items: center; gap: .7rem; margin-top: auto; padding: .4rem .62rem; border: 1px solid #e0d6ed; border-radius: 7px; background: #f6f0fa; color: var(--blue); font-size: .875rem; font-weight: 700; }
+.book:is(:hover, :focus-visible) .book-link { background: var(--nav-hover-bg); border-color: var(--nav-hover-line); }
+.footer { padding: 1rem 0 1.6rem; border-top: 1px solid var(--line); }
+@media (max-width: 720px) {
+  .shell { width: calc(100% - 36px); }
+  .intro { grid-template-columns: 1fr; gap: .95rem; }
+  .practice-formats { padding: .8rem 0 0; border: 0; border-top: 1px solid #d3c6e0; gap: .6rem; }
+  .book-grid { grid-template-columns: 1fr; }
+  .book { min-height: 168px; grid-template-columns: minmax(105px, 29%) minmax(0, 1fr); }
+  .cover { padding: 1rem; }
+  .cover img { width: min(100%, 89px); }
+}

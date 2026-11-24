@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="google" content="notranslate">
+  <meta name="theme-color" content="#f5f5f0">
+  <title>English Reading · Harvey Space</title>
+  <link rel="stylesheet" href="reader.css">
+  <link rel="stylesheet" href="../module-nav.css">
+  <script defer src="books.js"></script>
+  <script defer src="reader.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#reader-title">Skip to text</a>
+  <header class="topbar">
+    <div class="brand">
+      <a href="../index.html" class="home nav-control nav-control--quiet"><span aria-hidden="true" class="brand-mark"></span>Harvey Space</a>
+      <span class="brand-divider" aria-hidden="true"></span>
+      <span class="brand-module">English Reading</span>
+    </div>
+    <nav aria-label="Reading tools" class="top-actions">
+      <button type="button" id="toggle-shelf" aria-controls="shelf" aria-expanded="true">Library</button>
+      <button type="button" id="toggle-focus" aria-pressed="false">Focus</button>
+      <button type="button" id="toggle-settings" aria-controls="settings" aria-expanded="false">Reading settings</button>
+      <button type="button" id="bookmark" aria-label="Bookmark this reading position">Bookmark</button>
+    </nav>
+    <div class="progress-track" aria-hidden="true"><div id="progress-line"></div></div>
+  </header>
+
+  <section class="settings" id="settings" aria-label="Reading settings" hidden>
+    <div class="pane-heading"><h2>Reading settings</h2><button type="button" id="close-settings" aria-label="Close reading settings">Close</button></div>
+    <fieldset>
+      <legend>Theme</legend>
+      <div class="choices">
+        <button type="button" data-theme="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme="paper" aria-pressed="true">Eye comfort</button>
+        <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+      </div>
+    </fieldset>
+    <label class="range-label" for="font-size">Text size <output id="size-value" for="font-size">21 px</output></label>
+    <input id="font-size" type="range" min="17" max="30" value="21">
+    <label class="range-label" for="line-space">Line spacing <output id="space-value" for="line-space">1.8</output></label>
+    <input id="line-space" type="range" min="15" max="23" value="18">
+    <label class="check-label"><input type="checkbox" id="highlight-terms"> Underline words with notes</label>
+  </section>
+
+  <div class="layout">
+    <aside class="shelf" id="shelf" aria-label="Library and chapters">
+      <div class="shelf-heading"><h2>Library</h2><button type="button" id="close-shelf" aria-label="Close library">Close</button></div>
+      <div class="books" id="book-list"></div>
+      <div class="bookmark-actions" id="bookmark-actions" hidden>
+        <button type="button" id="goto-bookmark">Go to bookmark</button>
+        <button type="button" id="remove-bookmark" aria-label="Remove this book’s bookmark">Remove</button>
+      </div>
+      <div class="chapter-heading"><h2 id="chapter-list-title">Chapters</h2><span id="chapter-total"></span></div>
+      <nav id="chapter-list" class="chapters" aria-labelledby="chapter-list-title"></nav>
+    </aside>
+    <main class="reader" id="main-reader">
+      <article>
+        <header class="chapter-header">
+          <div class="chapter-meta"><span id="book-name"></span><span id="chapter-position"></span></div>
+          <h1 lang="en" id="reader-title" tabindex="-1">English Reading</h1>
+          <div class="chapter-tools">
+            <button type="button" id="chapter-terms" aria-controls="inspector">Word notes</button>
+            <button type="button" id="book-highlights" aria-controls="inspector">Highlights</button>
+            <output id="progress-label" aria-label="Chapter progress">0%</output>
+          </div>
+        </header>
+        <div id="prose" class="prose" lang="en"></div>
+        <noscript><p>Enable JavaScript to use the reader.</p></noscript>
+        <nav class="turn-page" id="turn-page" aria-label="Chapter navigation">
+          <button type="button" id="prev-chapter">Previous</button>
+          <button type="button" id="next-chapter">Next</button>
+        </nav>
+      </article>
+    </main>
+  </div>
+
+  <div class="selection-menu" id="selection-menu" role="group" aria-label="Selected text actions" hidden>
+    <button type="button" id="selection-translation">Translate</button>
+    <button type="button" id="selection-terms">Word notes</button>
+    <button type="button" id="selection-highlight">Highlight</button>
+  </div>
+
+  <aside id="inspector" class="inspector" aria-labelledby="inspector-title" hidden>
+    <div class="pane-heading"><h2 id="inspector-title">Reading tools</h2><button type="button" id="close-inspector" aria-label="Close reading tools">Close</button></div>
+    <div class="inspector-tabs" id="inspector-tabs" role="group" aria-label="Reading tool">
+      <button type="button" id="inspect-translation" aria-pressed="true">Translation</button>
+      <button type="button" id="inspect-terms" aria-pressed="false">Word notes</button>
+      <button type="button" id="inspect-highlight">Highlight</button>
+    </div>
+    <div class="inspector-body" id="inspector-body"></div>
+  </aside>
+  <div class="sr-only" id="status" role="status"></div>
+</body>
+</html>

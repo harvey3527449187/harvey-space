@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f6fa">
+  <title>Harvey Space · 个人工作台</title>
+  <link rel="stylesheet" href="space.css">
+  <link rel="stylesheet" href="module-nav.css">
+  <link rel="stylesheet" href="workspace.css">
+  <script src="workspace.js" defer></script>
+</head>
+<body>
+  <div class="shell workspace-shell">
+    <aside class="sidebar" aria-label="工作区侧栏">
+      <div class="sidebar-brand">
+        <a class="wordmark" href="#/today" lang="en"><span class="wordmark-icon" aria-hidden="true"></span> Harvey Space</a>
+        <span class="sidebar-subtitle">个人工作台</span>
+      </div>
+      <nav class="sidebar-nav" aria-label="工作区导航">
+        <div class="nav-group">
+          <h2>工作台</h2>
+          <ul>
+            <li><a href="#/today" data-view="today" aria-current="page"><span class="widget-icon" aria-hidden="true">⊞</span>今日概览</a></li>
+            <li><a href="#/tasks" data-view="tasks"><span class="widget-icon" aria-hidden="true">✓</span>每日待办</a></li>
+            <li><a href="#/timetable" data-view="timetable"><span class="widget-icon calendar-icon" aria-hidden="true"></span>每周课表</a></li>
+            <li><a href="#/countdowns" data-view="countdowns"><span class="widget-icon clock-icon" aria-hidden="true"></span>事件倒计时</a></li>
+            <li><a href="#/reminders" data-view="reminders"><span class="widget-icon" aria-hidden="true">!</span>提醒事项</a></li>
+            <li><a href="#/notes" data-view="notes"><span class="widget-icon" aria-hidden="true">≡</span>随手记</a></li>
+          </ul>
+        </div>
+        <div class="nav-group" id="study-navigation">
+          <h2>学习模块</h2>
+          <ul>
+            <li><a href="#/ielts" data-view="ielts" data-src="ielts/IELTS18%20Practice/library.html" data-title="IELTS Academic"><span class="widget-icon study-icon study-ielts" aria-hidden="true">I</span>IELTS Academic</a></li>
+            <li><a href="#/vocabulary" data-view="vocabulary" data-src="vocabulary/背单词.html" data-title="Vocabulary"><span class="widget-icon study-icon study-vocabulary" aria-hidden="true">Aa</span>Vocabulary</a></li>
+            <li><a href="#/reading" data-view="reading" data-src="reading/index.html" data-title="English Reading"><span class="widget-icon study-icon study-reading" aria-hidden="true">R</span>English Reading</a></li>
+          </ul>
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <button type="button" class="data-button" data-action="settings">数据管理</button>
+      </div>
+    </aside>
+
+    <main class="workspace-main" id="workspace-main">
+      <header class="poster" id="workspace-poster" aria-labelledby="poster-title">
+        <div class="poster-copy">
+          <time id="today-date" class="hero-date"></time>
+          <h1 id="poster-title" lang="en">Harvey <span>Space</span></h1>
+          <p class="hero-label">个人工作台</p>
+        </div>
+        <div class="poster-art">
+          <img src="open-book.png" width="1254" height="1254" alt="">
+        </div>
+      </header>
+
+      <p id="workspace-notice" class="workspace-notice" role="status" hidden></p>
+      <p id="storage-notice" class="workspace-notice" role="status" hidden></p>
+      <noscript><p class="workspace-notice">请启用 JavaScript 以使用工作台。</p></noscript>
+
+      <section id="dashboard" class="dashboard" aria-labelledby="dashboard-title">
+        <div class="dashboard-head" id="overview-header">
+          <div>
+            <h2 id="dashboard-title">今日概览</h2>
+            <p id="today-summary"></p>
+          </div>
+          <button type="button" class="action primary" data-action="quick">＋ 快速添加</button>
+        </div>
+        <div class="widget-grid">
+          <section class="widget tasks" id="tasks" aria-labelledby="tasks-title">
+            <header class="widget-header">
+              <div class="widget-heading"><span class="widget-icon" aria-hidden="true">✓</span><h3 id="tasks-title">每日待办</h3></div>
+              <button type="button" class="action" data-add="task">＋ 待办</button>
+            </header>
+            <div class="task-controls">
+              <label for="task-day">查看日期</label>
+              <input type="date" id="task-day">
+              <button type="button" class="quiet" data-action="today-tasks">回到今天</button>
+            </div>
+            <div class="task-progress"><progress id="task-progress" value="0" max="1" aria-label="待办完成进度"></progress><span id="task-count"></span></div>
+            <ul id="task-list" class="item-list"></ul>
+          </section>
+
+          <section class="widget timetable" id="timetable" aria-labelledby="timetable-title">
+            <header class="widget-header">
+              <div class="widget-heading"><span class="widget-icon calendar-icon" aria-hidden="true"></span><h3 id="timetable-title">每周课表</h3></div>
+              <button type="button" class="action" data-add="course">＋ 课程</button>
+            </header>
+            <div id="week-days" class="week-days" role="group" aria-label="按星期查看课程"></div>
+            <ul id="course-list" class="item-list"></ul>
+          </section>
+
+          <section class="widget countdown" id="countdowns" aria-labelledby="countdowns-title">
+            <header class="widget-header">
+              <div class="widget-heading"><span class="widget-icon clock-icon" aria-hidden="true"></span><h3 id="countdowns-title">事件倒计时</h3></div>
+              <button type="button" class="action" data-add="countdown">＋ 倒计时</button>
+            </header>
+            <div id="countdown-feature" class="countdown-feature" hidden></div>
+            <ul id="countdown-list" class="item-list"></ul>
+          </section>
+
+          <section class="widget reminders" id="reminders" aria-labelledby="reminders-title">
+            <header class="widget-header">
+              <div class="widget-heading"><span class="widget-icon" aria-hidden="true">!</span><h3 id="reminders-title">提醒事项</h3></div>
+              <button type="button" class="action" data-add="reminder">＋ 提醒</button>
+            </header>
+            <ul id="reminder-list" class="item-list"></ul>
+          </section>
+
+          <section class="widget notes" id="notes" aria-labelledby="notes-title">
+            <header class="widget-header">
+              <div class="widget-heading"><span class="widget-icon" aria-hidden="true">≡</span><h3 id="notes-title">随手记</h3></div>
+              <button type="button" class="action" data-add="note">＋ 笔记</button>
+            </header>
+            <ul id="note-list" class="item-list"></ul>
+          </section>
+        </div>
+      </section>
+
+      <section class="study-view" id="study-view" aria-labelledby="study-title" hidden>
+        <header class="study-header">
+          <h1 id="study-title" lang="en"></h1>
+          <a class="action" id="study-standalone" target="_blank" rel="noopener">在新标签页打开</a>
+        </header>
+        <div class="study-frames" id="study-frames"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="workspace-dialog" aria-labelledby="dialog-title">
+    <header class="dialog-header">
+      <h2 id="dialog-title"></h2>
+      <button type="button" class="close-dialog" data-action="close" aria-label="关闭">×</button>
+    </header>
+    <div id="dialog-content"></div>
+  </dialog>
+  <input type="file" id="backup-file" accept=".json,application/json" hidden>
+</body>
+</html>

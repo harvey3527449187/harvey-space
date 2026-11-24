@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+.vercel/
+node_modules/
+Harvey-Space-*.json
+背单词进度.json
+*.pem
+*.key
+*.p12
+*.pfx

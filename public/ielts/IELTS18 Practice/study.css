@@ -1,0 +1,110 @@
+#dialog.study-dialog{width:min(740px,calc(100vw - 28px));max-height:88dvh;overflow:auto}
+#dialog.study-dialog.paper-dialog{width:min(850px,calc(100vw - 28px))}
+.study-dialog .dialog-actions{position:sticky;bottom:-1px;background:white;padding:8px 0;z-index:5}
+.study-actions{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
+.toolbar .study-actions{margin:0}
+.question-checks{position:relative;max-height:65dvh;overflow:auto;overscroll-behavior:contain}
+.question-check{border:1px solid #dce3ec;border-radius:10px;margin:8px 0;overflow:hidden}
+.question-check summary{cursor:pointer;padding:10px 12px;line-height:1.6;background:#f5f8fc;overflow-wrap:anywhere}
+.question-check summary span{margin-inline-start:12px}
+.question-check[open] summary{border-bottom:1px solid #dce3ec}
+.check-detail{display:grid;gap:12px;padding:12px 14px 16px;line-height:1.7}
+.check-detail h3{margin:0;font-size:14px;color:#25364c}
+.check-detail p{margin:4px 0 0;color:#202735}
+.check-detail mark{background:#ffeb91;color:inherit;border-radius:2px}
+.reading-explain-page{margin-inline-start:8px;font-size:.85rem;font-weight:400;color:#475569}
+.coach-evidence{border-left:3px solid #aabfd8;padding:8px 12px;background:#f5f8fc}
+.coach-evidence blockquote{margin:6px 0 0;line-height:1.55}
+.coach-part+.coach-part{border-top:1px solid #dce3ec;margin-top:18px;padding-top:8px}
+.coach-plan ol,.coach-plan ul{padding-inline-start:1.5rem}
+.coach-plan li,.coach-example{line-height:1.65}
+.coach-plan li+li{margin-top:6px}
+.coach-note{color:#475569}
+#text-highlight-menu{display:flex;gap:4px;background:#fff;border:1px solid #dce3ec;padding:4px;border-radius:8px}
+#text-highlight-menu[hidden],#text-highlight-menu button[hidden]{display:none}
+#text-highlight-menu button{padding:7px 9px;font-size:13px}
+#text-highlight-menu [data-highlight]{background:#fff4c3;border-color:#efdb90}
+#dialog.reading-translation-dialog{width:min(1050px,calc(100vw - 24px))}
+.reference-layout{display:grid;gap:14px;min-width:0}
+.reference-layout.has-notes{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start}
+.reference-translation h3,.reading-language-notes h3{margin:0 0 .55rem;font-size:1rem}
+.reference-translation{min-width:0}
+.reading-translation-pair{padding:8px 0;overflow-wrap:anywhere}
+.reading-translation-pair h4,.phrase-group h4{margin:0 0 .35rem;color:#51417d;font-size:.84rem}
+.reading-translation-pair p{margin:0}
+.reading-translation-pair .translation-chinese{white-space:pre-line;color:#2b2134;margin-top:3px}
+.reference-unavailable{color:#5d526b;font-size:.875rem}
+.selection-reference{margin:0 0 1rem;background:#f5eff9;border:1px solid #e5dced;border-radius:10px;padding:.75rem .9rem}
+.selection-reference span{font-size:.78rem;font-weight:700;color:#51417d}
+.selection-reference blockquote{margin:.3rem 0 0;font:400 1.125rem/1.5 Georgia,serif;overflow-wrap:anywhere}
+.reading-language-notes{background:#f7f3fa;border:1px solid #e5dced;border-radius:10px;padding:12px;min-width:0}
+.reading-language-notes p{margin:0;font-size:.88rem}
+.phrase-group + .phrase-group{margin-top:.8rem;border-top:1px solid #e5dced;padding-top:.7rem}
+.reading-language-notes ul{margin:0;padding-inline-start:20px}
+.reading-language-notes li{margin:6px 0;line-height:1.55;overflow-wrap:anywhere}
+.reading-language-notes b{display:block;color:#362650}
+.exam{--red:#51417d;--dark:#251d35}
+.exam .toolbar{background:#f5f1fa}
+.exam .exam-top .primary:hover{background:#66558f}
+.workspace.reading{grid-template-columns:minmax(0,1.22fr) minmax(0,1fr)}
+.workspace.listening{grid-template-columns:minmax(0,1fr) minmax(255px,clamp(285px,26vw,420px))}
+.workspace.listening .question-paper,.reading-right .question-paper{max-width:calc(835px * var(--zoom,1))}
+.exam{grid-template-columns:minmax(0,1fr)}
+.paper.paper-flow{
+  max-width:76ch;
+  margin:0 auto 14px;
+  padding:clamp(16px,3vw,34px);
+  border:1px solid #dfe4ea;
+  border-radius:8px;
+  aspect-ratio:auto;
+  container-type:normal;
+  font:400 calc(clamp(1.0625rem, 1.7vw, 1.1875rem) * var(--zoom,1))/1.68 Georgia,Cambria,"Times New Roman",serif;
+  color:#202735;
+  overflow:visible;
+  overflow-wrap:anywhere;
+}
+.paper-flow h3{margin:0 0 .82em;font-size:1.35em;line-height:1.25;font-weight:700}
+.paper-flow p{margin:0 0 1em}
+.paper-flow p:last-child{margin-bottom:0}
+.paper-flow .paper-line{position:static;display:inline;white-space:normal;line-height:inherit}
+.question-paper .paper-line{line-height:1;tab-size:2}
+.question-paper .paper-line.badge{box-shadow:none;outline:.39em solid #3d4241}
+.passage-pane .pane-title{max-width:50rem}
+.reading-translation-pair .translation-english{
+  font:400 1.0625rem/1.58 Georgia,Cambria,"Times New Roman",serif;
+  color:#35445b;
+}
+.reading-translation-pair .translation-chinese{font-size:1rem;line-height:1.65}
+.reading-translation-pair + .reading-translation-pair{border-top:1px solid #eef1f4}
+.coach-evidence blockquote,.coach-example[lang="en"]{
+  font:400 1.0625rem/1.6 Georgia,Cambria,"Times New Roman",serif;
+  color:#202735;
+}
+.part-script [lang="en"],.part-script:lang(en){font-size:1.0625rem;line-height:1.65}
+#dialog.part-dialog:has(.transcript-content){width:min(980px,calc(100vw - 28px))}
+#dialog.part-dialog:has(.transcript-study:not([hidden])){width:min(1380px,calc(100vw - 28px))}
+.transcript-content{min-height:0;display:grid;grid-template-columns:minmax(0,1fr)}
+.transcript-content:has(.transcript-study:not([hidden])){grid-template-columns:minmax(0,1.03fr) minmax(0,1fr);gap:12px}
+.transcript-study{padding:12px;background:#fcf9fd;border:1px solid #e5dced;border-radius:12px;max-height:60dvh;overflow:auto;min-height:0;overscroll-behavior:contain}
+.transcript-study[hidden]{display:none}
+.transcript-study > button{display:block;margin:0 0 .65rem auto}
+.transcript-study .reference-layout.has-notes{grid-template-columns:1fr}
+.writing-box textarea{font-size:1rem;line-height:1.65}
+@media(max-width:700px){
+  .reference-layout.has-notes,.transcript-content:has(.transcript-study:not([hidden])){grid-template-columns:1fr}
+  .transcript-content:has(.transcript-study:not([hidden])) .part-script{max-height:25dvh}
+  .transcript-study{max-height:37dvh}
+  .workspace.listening{grid-template-columns:minmax(0,1fr) minmax(122px,34%)}
+  .workspace.reading{display:block;overflow:auto;overscroll-behavior:contain}
+  .reading .passage-pane{overflow:visible}
+  .reading-right{border-left:0;border-top:1px solid var(--line);grid-template-rows:minmax(180px,44dvh) auto}
+  .reading #questionScans .scan{min-width:320px}
+  .paper.paper-flow{padding:16px}
+  .exam-title{flex-wrap:wrap;gap:3px 8px}
+  .exam-title strong{white-space:normal}
+}
+@media(max-width:620px){
+  .question-check summary span{margin-inline-start:8px}
+  .question-check summary span:nth-last-child(2){display:block;margin-inline-start:20px}
+  .question-check summary span:last-child{display:block;margin-inline-start:20px}
+}

@@ -1,0 +1,1 @@
+const edition = {"number":17,"library":"../library.html","pdfPrefix":"","paperOffset":0,"paperAspect":1.2923079984658694,"keyStart":119,"transcripts":[[96,100],[101,106],[107,112],[113,118]],"samples":[[127,129],[130,132],[133,136],[137,138]]};

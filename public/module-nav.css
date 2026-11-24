@@ -1,0 +1,56 @@
+.harvey-nav {
+  padding: 9px clamp(16px, 4vw, 32px);
+  border-bottom: 1px solid #dce2ef;
+  background: #eef1fb;
+  color: #303766;
+  font: 600 0.9375rem/1.5 "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+a.harvey-return {
+  display: inline-block;
+  padding: 3px 0;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  text-underline-offset: 4px;
+}
+
+a.harvey-return:hover { text-decoration: underline; }
+a.harvey-return:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+
+a.nav-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .48rem;
+  min-height: 44px;
+  padding: .43rem .75rem;
+  border: 1px solid var(--nav-line, #d9dee8);
+  border-radius: 9px;
+  color: var(--nav-ink, inherit);
+  background: var(--nav-bg, #ffffffa0);
+  font-size: .875rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+a.nav-control--quiet {
+  border-color: transparent;
+  background: transparent;
+}
+
+a.nav-control:is(:hover, :focus-visible) {
+  border-color: var(--nav-hover-line, #aab9ed);
+  color: var(--nav-accent, #263db9);
+  background: var(--nav-hover-bg, #edf1ff);
+}
+
+a.nav-control:focus-visible {
+  outline: 2px solid var(--nav-accent, #263db9);
+  outline-offset: 2px;
+}
+
+@media (max-width: 460px) {
+  a.nav-control { padding-inline: .52rem; font-size: .8125rem; }
+}
