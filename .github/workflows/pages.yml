@@ -24,7 +24,43 @@ jobs:
           sparse-checkout-cone-mode: false
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
+        id: upload
         with:
           path: ./public
-      - uses: actions/deploy-pages@v4
+      - uses: actions/github-script@v8
         id: deploy
+        env:
+          PAGES_ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
+        with:
+          script: |
+            const artifactId = Number(process.env.PAGES_ARTIFACT_ID);
+            if (!Number.isSafeInteger(artifactId) || artifactId < 1) {
+              core.setFailed('The upload did not return a Pages artifact ID.');
+              return;
+            }
+            try {
+              const deployment = await github.request('POST /repos/{owner}/{repo}/pages/deployments', {
+                ...context.repo,
+                artifact_id: artifactId,
+                pages_build_version: context.sha,
+                environment: 'github-pages',
+                oidc_token: await core.getIDToken(),
+              });
+              const deploymentId = deployment.data.id || context.sha;
+              core.setOutput('page_url', deployment.data.page_url);
+              for (let attempt = 0; attempt < 60; attempt++) {
+                const status = await github.request('GET /repos/{owner}/{repo}/pages/deployments/{pages_deployment_id}', {
+                  ...context.repo, pages_deployment_id: deploymentId,
+                }).catch(error => error.status === 404 ? null : Promise.reject(error));
+                const phase = status?.data.status;
+                if (phase === 'succeed') return;
+                if (phase && /fail|error|cancel|lost|timeout/i.test(phase)) {
+                  core.setFailed('GitHub Pages deployment ended with status: ' + phase);
+                  return;
+                }
+                await new Promise(resolve => setTimeout(resolve, 5000));
+              }
+              core.setFailed('GitHub Pages deployment did not finish within five minutes.');
+            } catch (error) {
+              core.setFailed('GitHub Pages request failed' + (error.status ? ' (HTTP ' + error.status + ')' : '') + '.');
+            }
