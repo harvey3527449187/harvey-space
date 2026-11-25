@@ -47,10 +47,13 @@ function paperRowCoordinates(lines,bodyHeight) {
 }
 
 function renderPaperPage(page) {
-  const {lines, rules, figures, questionType} = paperPages[page];
+  const {lines, rules, figures, questionType, answerBlanks = []} = paperPages[page];
   const isQuestion = examQuestionPages.has(Number(page));
   const decorations = rules.map(([x,y,w,h,dotted])=>
     '<i aria-hidden="true" class="paper-rule'+(dotted?' dotted':'')+'" style="left:'+x+'%;top:'+y+'%;width:'+w+'%;height:'+h+'%"></i>'
+  ).join('');
+  const blanks = answerBlanks.map(([x,y,w,h])=>
+    '<i class="paper-answer-blank" aria-hidden="true" style="left:'+x+'%;top:'+y+'%;width:'+w+'%;height:'+h+'%"></i>'
   ).join('');
   const legacyMarks = (attempt?.marks?.[page] || []).map(({x,y,w,h})=>
     '<i aria-hidden="true" class="mark" style="left:'+x+'%;top:'+y+'%;width:'+w+'%;height:'+h+'%"></i>'
@@ -66,7 +69,7 @@ function renderPaperPage(page) {
   }
   const text = indices.map(i=>{
     if (isQuestion) {
-      const style = questionLineStyle(lines[i], coordinates[i], bodyHeight, questionType?.[i], rules);
+      const style = questionLineStyle(lines[i], coordinates[i], bodyHeight, questionType?.[i], rules, answerBlanks);
       return '<span class="paper-line '+lines[i][5]+'" data-line="'+i+'" style="'+style+'">'+
         formatPaperLine(page,i,lines[i][4])+'</span>';
     }
@@ -83,7 +86,7 @@ function renderPaperPage(page) {
     const fitting=widthScale<.99?';transform:scaleX('+widthScale.toFixed(3)+')':'';
     return '<span class="paper-line '+kind+'" data-line="'+i+'" style="left:'+x+'%;top:'+patchTop+'%;font-size:'+fontSize+'cqw'+fitting+'">'+formatPaperLine(page,i,value)+'</span>';
   }).join('\n');
-  return '<article class="scan paper'+(isQuestion?' question-paper':'')+'" style="aspect-ratio:'+(1/paperAspect)+'" lang="en" aria-label="Book page '+(page-edition.paperOffset)+'" data-page="'+page+'">'+decorations+graphics+legacyMarks+text+'<span class="paper-number" aria-hidden="true">'+(page-edition.paperOffset)+'</span></article>';
+  return '<article class="scan paper'+(isQuestion?' question-paper':'')+'" style="aspect-ratio:'+(1/paperAspect)+'" lang="en" aria-label="Book page '+(page-edition.paperOffset)+'" data-page="'+page+'">'+decorations+graphics+legacyMarks+blanks+text+'<span class="paper-number" aria-hidden="true">'+(page-edition.paperOffset)+'</span></article>';
 }
 
 function questionDisplayText(value) {
@@ -91,7 +94,7 @@ function questionDisplayText(value) {
   return value.replace(/[\u0000-\u0008\u000b-\u001f]/g, '\u200b');
 }
 
-function questionLineStyle(line, position, bodyHeight, nativeStyle, rules) {
+function questionLineStyle(line, position, bodyHeight, nativeStyle, rules, answerBlanks) {
   const [x,y,width,height,value,kind] = line;
   const [baseline, nativeSize, flags] = nativeStyle || [];
   const heading = /^(?:Test [1-4]|Questions? \d|PART [1-4]|WRITING TASK)/i.test(value) &&
@@ -106,18 +109,25 @@ function questionLineStyle(line, position, bodyHeight, nativeStyle, rules) {
     !dotted && w < .6 && h > 1.2 && left > x + .45 &&
     y + height * .65 > top && y + height * .65 < top+h
       ? Math.min(nearest, left - x - .42) : nearest, 100 - x);
-  const usable = Math.max(.4, Math.min(width + .25, rowGap, verticalBoundary, 98 - x));
+  const blankBoundary = answerBlanks.reduce((nearest,[left,top])=>
+    left > x + .8 && Math.abs(top - (y + height * .82)) < .75
+      ? Math.min(nearest,left-x-.34) : nearest, 100-x);
+  const usable = Math.max(.4, Math.min(width + .25, rowGap, verticalBoundary, blankBoundary, 98 - x));
   const cleaned = questionDisplayText(value);
   paperMeasure.font = font + '100px Arial';
   const ink = paperMeasure.measureText(cleaned);
   const metricWidth = ink.width + (cleaned.match(/\t/g)?.length || 0) *
     paperMeasure.measureText(' ').width;
-  const size = metricWidth ? Math.min(proposed, 100 * usable / metricWidth) : proposed;
+  const fitted = metricWidth ? Math.min(proposed, 100 * usable / metricWidth) : proposed;
+  const uniformSize = edition.number===19;
+  const size = uniformSize ? proposed : fitted;
+  const compression = uniformSize && fitted < size * .99
+    ? 'transform:scaleX('+(fitted/size).toFixed(3)+');' : '';
   const ascent = (ink.fontBoundingBoxAscent || 90) / 100;
   const descent = (ink.fontBoundingBoxDescent || 22) / 100;
   const lineBaseline = baseline ?? position.top + bodyHeight * .79;
   const top = lineBaseline - size / paperAspect * ((1 + ascent - descent) / 2);
-  return 'left:'+x+'%;top:'+top.toFixed(3)+'%;font-size:'+size.toFixed(3)+'cqw;'+
+  return 'left:'+x+'%;top:'+top.toFixed(3)+'%;font-size:'+size.toFixed(3)+'cqw;'+compression+
     'font-weight:'+(bold?700:400)+';font-style:'+(italic?'italic':'normal');
 }
 
@@ -133,7 +143,7 @@ function formatPaperLine(page,line,value) {
 function renderReadingPassage(part) {
   const [pages]=data().reading[part];
   if(pages.some(page=>attempt?.marks?.[page]?.length))return pages.map(renderPaperPage).join('');
-  return '<article class="paper paper-flow" lang="en">'+readingPassageBlocks(part).map(({lineOffsets},blockIndex)=>{
+  return '<article class="paper paper-flow" lang="en">'+readingPassageBlocks(part).map(({lineOffsets,role},blockIndex)=>{
     const fragments=lineOffsets.map(({page,index})=>{
       const [,,,,original,kind]=paperPages[page].lines[index];
       const start=original.length-original.trimStart().length;
@@ -143,13 +153,13 @@ function renderReadingPassage(part) {
         formatHighlightedText(text,marks,start)+'</span>';
       return {html,text,kind};
     });
-    const isHeading=blockIndex===0 && fragments.every(fragment=>fragment.kind==='bold');
+    const isHeading=role==='title' || (blockIndex===0 && fragments.every(fragment=>fragment.kind==='bold'));
     const tag=isHeading?'h3':'p';
     const body=fragments.map(({html,text},index)=>{
       const previous=fragments[index-1];
       return (previous && !(/[a-z]-$/i.test(previous.text)&&/^[a-z]/i.test(text))?' ':'')+html;
     }).join('');
-    return '<'+tag+'>'+body+'</'+tag+'>';
+    return '<'+tag+(role==='subtitle'?' class="passage-subtitle"':'')+'>'+body+'</'+tag+'>';
   }).join('')+'</article>';
 }
 

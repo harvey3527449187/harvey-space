@@ -56,9 +56,22 @@ function readingPassageBlocks(part){
   const blocks=[];
   let previousBlock=null;
   pages.forEach((page,pageIndex)=>{
-    const lines=paperPages[page].lines;
+    const {lines,readingLayout}=paperPages[page];
     const introEnd=lines.findIndex(line=>/^Passage\s*\d\s*below\s*\.$/i.test(line[4].trim()));
-    const ids=lines.flatMap(([,y,,,text,kind],i)=>y<7 || i<=introEnd || kind==='badge' ||
+    const leadEnd=readingLayout ? lines[readingLayout.subtitle.at(-1) ?? readingLayout.title.at(-1)][1] : null;
+    if(readingLayout){
+      for(const [role,ids] of Object.entries(readingLayout)){
+        if(!ids.length)continue;
+        const block={role,text:'',lineOffsets:[]};
+        for(const index of ids){
+          if(block.text)block.text+=' ';
+          block.lineOffsets.push({page,index,offset:block.text.length});
+          block.text+=lines[index][4].trim();
+        }
+        blocks.push(block);
+      }
+    }
+    const ids=lines.flatMap(([,y,,,text,kind],i)=>y<7 || (leadEnd===null?i<=introEnd:y<=leadEnd) || kind==='badge' ||
       /^(?:READING|Reading|Test \d|READING PASSAGE \d)$/.test(text.trim()) ? [] : [i]);
     readingPageColumns(page,ids).forEach((column,columnIndex)=>{
       let block=null;
