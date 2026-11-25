@@ -48,7 +48,7 @@ function home() {
     const mockStarted=sequence.some(skill=>attempts[getKey(n,skill,true)]);
     const mockComplete=sequence.every(skill=>attempts[getKey(n,skill,true)]?.submitted);
     const mockLabel=mockComplete?'Review mock':mockStarted?'Resume mock':'Full mock';
-    const mock=edition.importedPdf?'':'<button class="primary" data-open="full" data-test="'+n+'">'+mockLabel+' →</button>';
+    const mock='<button class="primary" data-open="full" data-test="'+n+'">'+mockLabel+' →</button>';
     return '<div class="test-row"><strong>Test '+n+'</strong><div class="test-actions">'+buttons+'</div>'+mock+'</div>';
   }).join('');
   const pdf = edition.pdfPrefix+'剑桥雅思'+edition.number;
@@ -62,7 +62,7 @@ function home() {
       <header class="edition-heading">
         <p class="edition-kicker">IELTS Academic</p>
         <h1>Cambridge IELTS <span>${edition.number}</span></h1>
-        <p>${edition.importedPdf?'Practise Listening, Reading, Writing and Speaking.':'Practise a single skill or take Listening, Reading and Writing in sequence.'}</p>
+        <p>Practise a single skill or take Listening, Reading and Writing in sequence.</p>
       </header>
       <div class="edition-layout">
         <section aria-labelledby="tests-title">
@@ -77,7 +77,9 @@ function home() {
           <div class="resources">
             <button id="browse-transcript">Listening transcripts</button>
             <button id="browse-keys">Answer keys</button>
-            ${edition.importedPdf?'<button id="browse-samples">Writing samples</button><a class="nav-control" href="https://www.cambridgeone.org/" target="_blank" rel="noopener">Cambridge One audio <span aria-hidden="true">↗</span></a>':`<a class="nav-control" href="${pdf} - 题目.pdf" target="_blank">Questions PDF <span aria-hidden="true">↗</span></a>
+            ${edition.sourcePdf?`<a class="nav-control" href="${edition.sourcePdf}#page=11" target="_blank" rel="noopener">Questions PDF <span aria-hidden="true">↗</span></a>
+            <a class="nav-control" href="${edition.sourcePdf}#page=100" target="_blank" rel="noopener">Transcript PDF <span aria-hidden="true">↗</span></a>
+            <a class="nav-control" href="${edition.sourcePdf}#page=121" target="_blank" rel="noopener">Answer key PDF <span aria-hidden="true">↗</span></a>`:`<a class="nav-control" href="${pdf} - 题目.pdf" target="_blank">Questions PDF <span aria-hidden="true">↗</span></a>
             <a class="nav-control" href="${pdf} - 听力原文.pdf" target="_blank">Transcript PDF <span aria-hidden="true">↗</span></a>
             <a class="nav-control" href="${pdf} - 答案.pdf" target="_blank">Answer key PDF <span aria-hidden="true">↗</span></a>`}
           </div>
@@ -87,9 +89,6 @@ function home() {
     </main>`;
   document.querySelector('#browse-transcript').onclick=()=>chooseResource('transcript');
   document.querySelector('#browse-keys').onclick=()=>chooseResource('answers');
-  if(edition.importedPdf){
-    document.querySelector('#browse-samples').onclick=()=>chooseResource('samples');
-  }
   app.querySelectorAll('[data-open]').forEach(button=>button.onclick=()=>{
     const skill=button.dataset.open;
     const n=Number(button.dataset.test);
@@ -178,8 +177,8 @@ function partFor(q) {
   if(section==='reading') return data().reading.findIndex(([,pages])=>pages.some(([,start,end])=>q>=start && q<=end));
   return q-1;
 }
-function scan(page,question=false) {
-  return edition.importedPdf?editionMedia.paper(page,question):renderPaperPage(page);
+function scan(page) {
+  return renderPaperPage(page);
 }
 function renderExam() {
   const afterTimeout=attempt.submitted;
@@ -206,10 +205,7 @@ function renderExam() {
     zoom = zoom===1 ? 1.25 : zoom===1.25 ? 1.55 : 1;
     applyZoom();
   };
-  if(edition.importedPdf){
-    document.querySelector('#mark').hidden=true;
-    document.querySelector('#undo').hidden=true;
-  }else installTextHighlightControl();
+  installTextHighlightControl();
   document.querySelector('#note').onclick=()=>{
     const q=current;
     show('Notes · '+(isObjective()?'Question ':section==='writing'?'Task ':'Practice ')+q,
@@ -397,6 +393,7 @@ function startAudio(){
   });
 }
 function fullListeningPart(position) {
+  if(edition.audioPart)return attempt.fullListeningPart||0;
   const starts=fullListeningPartStarts[testNumber-1];
   return Math.max(0,starts.findLastIndex(start=>position>=start));
 }
@@ -404,6 +401,7 @@ function fullListeningStatus(position) {
   return 'Full recording · Part '+(fullListeningPart(position)+1);
 }
 function playFullListening() {
+  if(edition.audioPart)return playFullListeningByPart(attempt.fullListeningPart||0);
   stopAudio();
   const saved=attempt;
   const position=saved.fullPosition||0;
@@ -427,16 +425,46 @@ function playFullListening() {
   };
   audio.onended=()=>{
     if(attempt!==saved)return;
-    saved.deadline=Date.now()+120000;
-    stopAudio();
-    setSound('Check answers · 2 min');
-    put();
-    tick();
+    startFullListeningAnswerCheck(saved);
   };
   audio.onerror=()=>setSound('Could not load the full recording',true);
   audio.src='assets/Test '+testNumber+' Full.mp3';
   setSound(fullListeningStatus(position));
   startAudio();
+}
+function playFullListeningByPart(part) {
+  stopAudio();
+  const saved=attempt;
+  const position=saved.fullListeningPart===part ? (saved.fullPosition||0) : 0;
+  saved.fullListeningPart=part;
+  saved.fullPosition=position;
+  audio.volume=volume;
+  audio.onloadedmetadata=()=>{
+    if(position>0 && position<audio.duration)audio.currentTime=position;
+  };
+  audio.ontimeupdate=()=>{
+    if(attempt!==saved || saved.deadline || audio.readyState<2)return;
+    saved.fullPosition=audio.currentTime;
+    put();
+  };
+  audio.onended=()=>{
+    if(attempt!==saved)return;
+    if(part===3)return startFullListeningAnswerCheck(saved);
+    jump((part+1)*10+1);
+    playFullListeningByPart(part+1);
+  };
+  audio.onerror=()=>setSound('Could not load the recording',true);
+  audio.src=edition.audioPart(testNumber,part);
+  setSound(fullListeningStatus(position));
+  put();
+  startAudio();
+}
+function startFullListeningAnswerCheck(saved) {
+  saved.deadline=Date.now()+120000;
+  stopAudio();
+  setSound('Check answers · 2 min');
+  put();
+  tick();
 }
 function tick(foreground){
   const clock=document.querySelector('#clock');
@@ -524,7 +552,7 @@ function review(hideAnswers=false) {
   const keyPage=edition.keyStart+(n-1)*2+(skill==='reading'?1:0);
   let content='';
   if(!hideAnswers&&objective){
-    const explainReading=skill==='reading'&&!edition.importedPdf;
+    const explainReading=skill==='reading';
     const answers=range(1,40).map(q=>{
       const v=a.answers[q]||'';
       const expected=answerInfo(skill,q);
@@ -540,7 +568,7 @@ function review(hideAnswers=false) {
   const nextSkill=hideAnswers?sequence[sequence.indexOf(skill)+1]:null;
   const returnButton=allowReturn?'<button class="primary" id="return-at-zero">Return to questions (00:00)</button>':'';
   const nextButton=allowReturn&&nextSkill?'<button id="next-exam-section">Start '+skillLabel[nextSkill]+'</button>':'';
-  const translations=skill==='reading' && !hideAnswers && !edition.importedPdf
+  const translations=skill==='reading' && !hideAnswers
     ? data().reading.map((_,part)=>'<button type="button" data-study="reading-translation" data-passage="'+part+'">Passage '+(part+1)+' Full translation</button>').join('')
     : '';
   app.innerHTML='<header class="top">'+brand+'<small>Test '+n+' · '+names[skill]+'</small></header><main class="review"><button id="back">← All tests</button><h1>'+title+'</h1><p>'+stat+'</p><div class="review-tabs">'+returnButton+nextButton+'<button id="again">Retry section</button>'+translations+'</div>'+content+'</main>';

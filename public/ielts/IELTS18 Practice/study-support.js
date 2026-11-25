@@ -1,7 +1,6 @@
 'use strict';
 
 function studyButtons(skill, task=0){
-  if(edition.importedPdf)return '';
   if(skill==='reading'){
     return '<div class="study-actions"><button type="button" data-study="reading-translation">Full translation</button>'+
       '<button type="button" data-study="reading">Check answers &amp; explanations</button></div>';
@@ -12,7 +11,6 @@ function studyButtons(skill, task=0){
 }
 
 function installStudySupport(){
-  if(edition.importedPdf)return;
   if(full && !readingTranslationAllowed()) return;
   const toolbar=app.querySelector('.toolbar > .tools');
   if(section!=='listening') toolbar.insertAdjacentHTML('beforeend',studyButtons(section));
@@ -88,10 +86,10 @@ function showReadingCheck(question) {
       '<span class="' + statusClass + '">' + status + '</span>' +
       '<span>Your answer <b>' + (esc(value) || '—') + '</b></span>' +
       '<span>Answer key <b>' + esc(expected) + '</b></span></summary>' +
-      '<div class="check-detail"><section class="coach-evidence"><h3>Passage evidence' +
+      '<div class="check-detail">' + (focus ? '<section class="coach-evidence"><h3>Passage evidence' +
       '<span class="reading-explain-page">Book page ' + (page - edition.paperOffset) + '</span></h3>' +
       '<blockquote lang="en">' + esc(before) + '<mark>' + esc(focus) + '</mark>' + esc(after) +
-      '</blockquote></section><section><h3>Explanation</h3><p>' + esc(reasoning) +
+      '</blockquote></section>' : '') + '<section><h3>Explanation</h3><p>' + esc(reasoning) +
       '</p></section></div></details>';
   }).join('');
   const actions = [['Close', closeDialog]];

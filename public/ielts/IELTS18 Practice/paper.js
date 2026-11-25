@@ -132,7 +132,6 @@ function formatPaperLine(page,line,value) {
 
 function renderReadingPassage(part) {
   const [pages]=data().reading[part];
-  if(edition.importedPdf)return pages.map(page=>scan(page)).join('');
   if(pages.some(page=>attempt?.marks?.[page]?.length))return pages.map(renderPaperPage).join('');
   return '<article class="paper paper-flow" lang="en">'+readingPassageBlocks(part).map(({lineOffsets},blockIndex)=>{
     const fragments=lineOffsets.map(({page,index})=>{

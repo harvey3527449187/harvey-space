@@ -15,8 +15,7 @@ function listeningActions() {
     '<div id="practice-player" class="practice-player"' + (full ? ' hidden' : '') + '>' +
     (full ? '' : listeningSkipButtons()) + '</div>' +
     '<div class="practice-links"><button id="part-transcript" type="button">Transcript</button>' +
-    (edition.importedPdf?'<a class="nav-control nav-control--quiet" href="'+editionMedia.onlineSource(testNumber)+'" target="_blank" rel="noopener">Audio source ↗</a>':
-      '<button id="part-translation" type="button">Chinese translation</button>') +
+    '<button id="part-translation" type="button">Chinese translation</button>'+
     '<button id="part-check" type="button">Check answers</button></div></div>';
 }
 
@@ -31,10 +30,8 @@ function installListeningActions() {
       audio.addEventListener(event, syncListeningControls);
     }
   }
-  document.querySelector('#part-transcript').onclick=()=>edition.importedPdf
-    ? showResource('transcript',testNumber)
-    : showPartTranscript(pageIndex,false);
-  if(!edition.importedPdf)document.querySelector('#part-translation').onclick=()=>showPartTranscript(pageIndex,true);
+  document.querySelector('#part-transcript').onclick=()=>showPartTranscript(pageIndex,false);
+  document.querySelector('#part-translation').onclick=()=>showPartTranscript(pageIndex,true);
   document.querySelector('#part-check').onclick=()=>showPartAnswers(pageIndex);
 }
 
@@ -112,7 +109,6 @@ function selectListeningPart(part) {
 }
 
 function loadPracticePart(part) {
-  if(edition.importedPdf)audio.ontimeupdate?.();
   stopAudio();
   audio.controls=true;
   audio.hidden=false;
@@ -137,7 +133,7 @@ function loadPracticePart(part) {
   };
   audio.onerror=()=>setSound('Could not load the recording',true);
   audio.onplay=()=>setSound('Section practice');
-  audio.src=edition.importedPdf?editionMedia.onlineRecording(testNumber,part):
+  audio.src=edition.audioPart?edition.audioPart(testNumber,part):
     'assets/Test '+testNumber+' Part '+(part+1)+'.mp3';
   setSound('Section practice');
   syncListeningControls();
@@ -310,7 +306,7 @@ function showPartTranscript(part,translated) {
 }
 
 function showPartAnswers(part) {
-  const explanations = edition.importedPdf?null:listeningExplanations[testNumber - 1];
+  const explanations = listeningExplanations[testNumber - 1];
   const rows = range(part * 10 + 1, part * 10 + 10).map(question => {
     const value = (attempt.answers[question] || '').trim();
     const result = value ? grade('listening', question, value) : null;
@@ -324,7 +320,8 @@ function showPartAnswers(part) {
       '<span class="part-answer-value"><small>Answer key</small> ' + esc(expected) + '</span>' +
       '<span class="part-answer-status ' + statusClass + '">' + status + '</span>' +
       '<span class="part-answer-toggle" aria-hidden="true"></span></summary>' +
-      (cue?'<div class="part-explanation"><h3>Transcript evidence</h3><p>' + esc(cue) + '</p>' +
+      (reasoning?'<div class="part-explanation">' +
+      (cue?'<h3>Transcript evidence</h3><p>' + esc(cue) + '</p>':'') +
       '<h3>Explanation</h3><p>' + esc(reasoning) + '</p></div>':'')+'</details>';
   }).join('');
   show('Test ' + testNumber + ' · Part ' + (part + 1) + ' · Answer check',

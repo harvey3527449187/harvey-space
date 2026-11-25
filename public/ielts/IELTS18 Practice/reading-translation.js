@@ -31,6 +31,11 @@ function readingPageColumns(page,lineIds){
     const boundary=page===72?51:49;
     return [header,body.filter(row=>row.x<boundary),body.filter(row=>row.x>=boundary)];
   }
+  if(edition.number===19 && (page===48 || page===49)){
+    const header=rows.filter(row=>page===48 && row.y<25);
+    const body=rows.filter(row=>!header.includes(row));
+    return [header,body.filter(row=>row.x<49),body.filter(row=>row.x>=49)];
+  }
   return [rows];
 }
 
@@ -52,7 +57,7 @@ function readingPassageBlocks(part){
   let previousBlock=null;
   pages.forEach((page,pageIndex)=>{
     const lines=paperPages[page].lines;
-    const introEnd=lines.findIndex(line=>/^Passage \d below\.$/i.test(line[4].trim()));
+    const introEnd=lines.findIndex(line=>/^Passage\s*\d\s*below\s*\.$/i.test(line[4].trim()));
     const ids=lines.flatMap(([,y,,,text,kind],i)=>y<7 || i<=introEnd || kind==='badge' ||
       /^(?:READING|Reading|Test \d|READING PASSAGE \d)$/.test(text.trim()) ? [] : [i]);
     readingPageColumns(page,ids).forEach((column,columnIndex)=>{
