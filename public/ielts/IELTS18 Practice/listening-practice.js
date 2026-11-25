@@ -139,36 +139,46 @@ function loadPracticePart(part) {
   syncListeningControls();
 }
 
-function transcriptParagraphs(lines,translated,start,marksByLine) {
-  return lines.map((line,index)=>{
-    const value=line.trim();
-    if(!value)return '';
-    const speaker=translated?value.match(/^\*\*(.+?)\*\*\s*(.*)$/):value.match(/^([A-Z][A-Z ()/]{1,23}:)\s*(.*)$/);
-    const lineNumber=start+index;
-    const marks=marksByLine?.[lineNumber]||[];
-    const text=speaker
-      ? '<strong>'+formatHighlightedText(speaker[1],marks)+'</strong>'+
-        formatHighlightedText(' '+speaker[2],marks,speaker[1].length)
-      : formatHighlightedText(value,marks);
-    return '<p'+(translated?'':' data-transcript-line="'+lineNumber+'"')+'>'+text+'</p>';
-  }).join('');
+function transcriptEnglish(value,marks,from=0) {
+  const speaker=from===0 && value.match(/^[A-Z][A-Z ()/]{1,23}:/)?.[0];
+  return speaker
+    ? '<strong>'+formatHighlightedText(speaker,marks)+'</strong>'+
+      formatHighlightedText(value.slice(speaker.length),marks,speaker.length)
+    : formatHighlightedText(value,marks,from);
+}
+
+function transcriptSentencePairs(idx,lineNumber,original) {
+  let from=0;
+  return listeningSentenceTranslations[idx][lineNumber].map(([to,chinese])=>{
+    const pair={from,to,english:original.slice(from,to),chinese};
+    from=to;
+    return pair;
+  });
 }
 
 const transcriptScrollByPart = new Map();
 
 function renderQuestionGroups(idx,translated) {
   const groups=listeningQuestionGroups[idx];
-  const lines=translated?listeningTranslations[idx].split('\n').filter(line=>line.trim()):listeningTranscripts[idx];
-  const startColumn=translated?2:1;
-  const marks=translated?null:attempt?.transcriptMarks?.[idx];
-  return groups.map(([last],i)=>{
+  const lines=listeningTranscripts[idx];
+  const marks=attempt?.transcriptMarks?.[idx];
+  return groups.map(([last,start],i)=>{
     const first=i?groups[i-1][0]+1:(idx%4)*10+1;
-    const start=groups[i][startColumn];
-    const paragraphs=lines.slice(start,groups[i+1]?.[startColumn]);
     const label=first===last?(translated?'第 '+first+' 题':'Question '+first):
       (translated?'第 '+first+'–'+last+' 题':'Questions '+first+'–'+last);
-    return '<section class="part-question-group" data-transcript-group="'+i+'"><h3>'+label+'</h3>'+
-      transcriptParagraphs(paragraphs,translated,start,marks)+'</section>';
+    const html=lines.slice(start,groups[i+1]?.[1]).map((line,index)=>{
+      const original=line.trim();
+      if(!original)return '';
+      const lineNumber=start+index;
+      const highlights=marks?.[lineNumber]||[];
+      const lineAttr=' data-transcript-line="'+lineNumber+'"';
+      if(!translated)return '<p'+lineAttr+'>'+transcriptEnglish(original,highlights)+'</p>';
+      const pairs=transcriptSentencePairs(idx,lineNumber,original).map(({from,english,chinese})=>
+        '<div class="transcript-sentence"><p lang="en">'+transcriptEnglish(english,highlights,from)+'</p>'+
+        '<p lang="zh-CN">'+esc(chinese)+'</p></div>').join('');
+      return '<div class="transcript-turn"'+lineAttr+'>'+pairs+'</div>';
+    }).join('');
+    return '<section class="part-question-group" data-transcript-group="'+i+'"><h3>'+label+'</h3>'+html+'</section>';
   }).join('<hr class="part-script-divider">');
 }
 
@@ -213,39 +223,26 @@ function highlightTranscript(panel,idx) {
 }
 
 function selectedListeningReference(segments,idx){
-  const english=listeningTranscripts[idx].map(line=>line.trim());
-  const chinese=listeningTranslations[idx].split('\n').filter(line=>line.trim());
-  const groups=listeningQuestionGroups[idx];
-  const touched=new Set();
+  const lines=listeningTranscripts[idx];
   const text=[];
-  const context=[];
   const rows=[];
   for(const {line,from,to} of segments){
     const index=Number(line);
-    const original=english[index];
+    const original=lines[index].trim();
     text.push(original.slice(from,to));
-    context.push(...readingSentenceRanges(original).filter(({index,segment})=>index<to && index+segment.length>from).map(({segment})=>segment));
-    const group=groups.findLastIndex(([,start])=>start<=index);
-    const [last,startEn,startZh]=groups[group];
-    const endEn=groups[group+1]?.[1]??english.length;
-    const endZh=groups[group+1]?.[2]??chinese.length;
-    if(endEn-startEn===endZh-startZh){
-      rows.push({label:'Transcript in context',english:original,chinese:chinese[startZh+index-startEn].replaceAll('**','')});
-    }else if(!touched.has(group)){
-      touched.add(group);
-      const first=group?groups[group-1][0]+1:(idx%4)*10+1;
-      rows.push({label:'Transcript context · Questions '+first+'–'+last,
-        chinese:chinese.slice(startZh,endZh).join('\n\n').replaceAll('**','')});
+    for(const pair of transcriptSentencePairs(idx,index,original)){
+      if(pair.from>=to || pair.to<=from)continue;
+      rows.push({english:pair.english.trim(),chinese:pair.chinese});
     }
   }
-  return {rows, text:text.join(' '),context:context.join(' ')};
+  return {rows,text:text.join(' '),context:rows.map(row=>row.english).join(' ')};
 }
 
 function showPartTranscript(part,translated) {
   const idx=(testNumber-1)*4+part;
   const heading='Test '+testNumber+' · Part '+(part+1);
   const sections='<div class="part-transcript-tools"><div class="part-language" role="group" aria-label="Transcript language">' +
-    '<button type="button" id="script-en">English transcript</button><button type="button" id="script-zh">Chinese translation</button>' +
+    '<button type="button" id="script-en">English transcript</button><button type="button" id="script-zh">Bilingual transcript</button>' +
     '<button type="button" id="transcript-highlight" title="Select text in the English transcript first" disabled>Highlight selection</button>' +
     '<button type="button" id="transcript-reference" title="Select text in the English transcript first" disabled>Translation and notes</button></div>' +
     transcriptPlayer()+'</div>' +
@@ -261,7 +258,10 @@ function showPartTranscript(part,translated) {
   const reference=dialog.querySelector('#transcript-reference');
   const notes=dialog.querySelector('.transcript-study');
   highlighter.onpointerdown=event=>event.preventDefault();
-  highlighter.onclick=()=>highlightTranscript(panels[0],idx);
+  highlighter.onclick=()=>{
+    highlightTranscript(panels[0],idx);
+    panels[1].innerHTML=renderQuestionGroups(idx,true);
+  };
   reference.onpointerdown=event=>event.preventDefault();
   reference.onclick=()=>{
     const segments=selectedTranscriptText(panels[0]);
@@ -277,12 +277,12 @@ function showPartTranscript(part,translated) {
   let active=null;
   function selectLanguage(language) {
     if(active===language)return;
-    let group=0;
+    let line;
     if(active!==null){
       const current=panels[active];
       scroll[active]=current.scrollTop;
-      const sections=[...current.querySelectorAll('[data-transcript-group]')];
-      group=Math.max(0,sections.findLastIndex(item=>item.offsetTop<=current.scrollTop+12));
+      const lines=[...current.querySelectorAll('[data-transcript-line]')];
+      line=lines.findLast(item=>item.offsetTop<=current.scrollTop+12)?.dataset.transcriptLine;
     }
     panels.forEach((panel,i)=>{
       panel.hidden=i!==language;
@@ -294,8 +294,8 @@ function showPartTranscript(part,translated) {
     if(language!==0)notes.hidden=true;
     syncTranscriptHighlight();
     const panel=panels[language];
-    const target=panel.querySelector('[data-transcript-group="'+group+'"]');
-    panel.scrollTop=scroll[language]??Math.max(0,(target?.offsetTop||0)-8);
+    const target=line===undefined?null:panel.querySelector('[data-transcript-line="'+line+'"]');
+    panel.scrollTop=target?Math.max(0,target.offsetTop-8):scroll[language]??0;
   }
   panels.forEach((panel,i)=>{
     panel.onscroll=()=>{if(active===i)scroll[i]=panel.scrollTop};
