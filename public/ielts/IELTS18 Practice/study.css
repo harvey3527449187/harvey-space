@@ -90,6 +90,16 @@
 .transcript-study > button{display:block;margin:0 0 .65rem auto}
 .transcript-study .reference-layout.has-notes{grid-template-columns:1fr}
 .writing-box textarea{font-size:1rem;line-height:1.65}
+.tablet-reading .reading-right #answerPane{max-height:25dvh}
+@media(min-width:761px){
+  .tablet-reading .workspace.reading{grid-template-columns:minmax(0,42fr) minmax(0,58fr)}
+  .tablet-reading .workspace.reading .pane{padding-inline:12px}
+  .tablet-default-zoom{container-type:inline-size}
+  /* Scale from the regular question column so the wider tablet pane can fit the whole page. */
+  .tablet-default-zoom .reading-right .question-paper{
+    max-width:min(100%,calc((100cqw / 2.22 - 37px) * var(--zoom)),calc(835px * var(--zoom)));
+  }
+}
 @media(max-width:700px){
   .reference-layout.has-notes,.transcript-content:has(.transcript-study:not([hidden])){grid-template-columns:1fr}
   .transcript-content:has(.transcript-study:not([hidden])) .part-script{max-height:25dvh}

@@ -7,6 +7,11 @@ const names = {listening:'Listening', reading:'Academic Reading', writing:'Acade
 const skillLabel = {listening:'Listening', reading:'Reading', writing:'Writing', speaking:'Speaking'};
 const sequence = ['listening','reading','writing'];
 const archiveKey = 'cambridge-ielts'+edition.number+'-attempts-v1';
+const userAgent = navigator.userAgent;
+// iPadOS can report a desktop-class Mac user agent.
+const tabletDevice = /iPad/i.test(userAgent)
+  || (/Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1)
+  || (/Android/i.test(userAgent) && !/Mobile/i.test(userAgent));
 let testNumber, section, attempt, full = false, pageIndex = -1, current = 1, zoom = 1;
 let volume = .75, soundMessage = '', audioGeneration = 0;
 let attempts = {};
@@ -177,6 +182,7 @@ function renderExam() {
   const finishLabel=afterTimeout?'Back to review':section==='speaking'?'Finish':'Submit';
   const volumeControl=section==='listening'?'<label class="audio-label">Volume <input type="range" min="0" max="1" step=".05" value="'+volume+'"></label><span id="soundMessage" class="audio-label" aria-live="polite"></span><button id="recover" hidden>'+(full?'Play full recording':'Resume audio')+'</button>':'';
   app.innerHTML='<div class="exam"><header class="exam-top"><div class="exam-title">'+brand+'<strong>Test '+testNumber+' · '+names[section]+'</strong></div><div id="clock" class="clock"></div><div class="tools"><button id="home">Exit</button><button id="finish" class="primary">'+finishLabel+'</button></div></header><div class="toolbar"><div id="group" class="group"></div><div class="tools">'+volumeControl+'<button id="zoom" title="Zoom scanned pages">Zoom</button><button id="mark" title="Select text, then activate Highlight">Highlight selection</button><button id="undo" title="Undo the most recent highlight in this section">Undo</button><button id="note">Notes</button></div>'+(section==='listening'?listeningActions():'')+'</div><main id="work" class="workspace '+section+'"></main><footer class="bottom"><nav id="nav" class="nav" aria-label="Question navigation"></nav><div class="next-prev"><button id="prev" aria-label="Previous question">←</button><button id="next" aria-label="Next question">→</button></div></footer></div>';
+  if(section==='reading' && tabletDevice) app.firstElementChild.classList.add('tablet-reading');
   document.querySelector('#home').onclick=()=>show('Return to tests?',afterTimeout
     ?'<p>Answers are saved in this browser. The timer will remain at 00:00 when you return.</p>'
     :full
@@ -219,9 +225,22 @@ function renderExam() {
 }
 function applyZoom(){
   const work=document.querySelector('#work');
-  work.style.setProperty('--zoom',zoom);
-  work.querySelectorAll('.scan').forEach(card=>card.style.width=zoom>1?zoom*100+'%':'');
-  document.querySelector('#zoom').textContent=zoom===1?'Zoom':Math.round(zoom*100)+'%';
+  const tabletDefault=section==='reading' && tabletDevice && zoom===1;
+  const questionZoom=tabletDefault ? 1.25 : zoom;
+  const passagePane=work.querySelector('.passage-pane');
+  work.classList.toggle('tablet-default-zoom',tabletDefault);
+  work.style.setProperty('--zoom',questionZoom);
+  if(passagePane){
+    if(tabletDefault) passagePane.style.setProperty('--zoom',0.75);
+    else passagePane.style.removeProperty('--zoom');
+  }
+  work.querySelectorAll('.scan').forEach(card=>{
+    const scale=tabletDefault && passagePane?.contains(card) ? 0.75 : questionZoom;
+    card.style.width=scale===1 ? '' : scale*100+'%';
+  });
+  const button=document.querySelector('#zoom');
+  button.textContent=tabletDefault ? '75% / 125%' : zoom===1 ? 'Zoom' : Math.round(zoom*100)+'%';
+  button.title=tabletDefault ? 'Passage 75% · Questions 125%' : 'Zoom scanned pages';
 }
 function renderGroup(part) {
   const group=document.querySelector('#group');
