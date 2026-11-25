@@ -80,6 +80,7 @@
   font:400 1.0625rem/1.6 Georgia,Cambria,"Times New Roman",serif;
   color:#202735;
 }
+.part-script p{-webkit-user-select:text;user-select:text;cursor:text}
 .part-script [lang="en"],.part-script:lang(en){font-size:1.0625rem;line-height:1.65}
 .transcript-sentence{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 22px;padding:8px 10px;border-bottom:1px solid #eee7f1}
 .part-script .transcript-sentence p{margin:0}

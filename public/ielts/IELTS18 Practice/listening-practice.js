@@ -162,6 +162,7 @@ function renderQuestionGroups(idx,translated) {
   const groups=listeningQuestionGroups[idx];
   const lines=listeningTranscripts[idx];
   const marks=attempt?.transcriptMarks?.[idx];
+  const chineseMarks=attempt?.transcriptChineseMarks?.[idx];
   return groups.map(([last,start],i)=>{
     const first=i?groups[i-1][0]+1:(idx%4)*10+1;
     const label=first===last?(translated?'第 '+first+' 题':'Question '+first):
@@ -174,8 +175,10 @@ function renderQuestionGroups(idx,translated) {
       const lineAttr=' data-transcript-line="'+lineNumber+'"';
       if(!translated)return '<p'+lineAttr+'>'+transcriptEnglish(original,highlights)+'</p>';
       const pairs=transcriptSentencePairs(idx,lineNumber,original).map(({from,english,chinese})=>
-        '<div class="transcript-sentence"><p lang="en">'+transcriptEnglish(english,highlights,from)+'</p>'+
-        '<p lang="zh-CN">'+esc(chinese)+'</p></div>').join('');
+        '<div class="transcript-sentence"><p lang="en" data-transcript-offset="'+from+'">'+
+        transcriptEnglish(english,highlights,from)+'</p>'+
+        '<p lang="zh-CN" data-transcript-offset="'+from+'">'+
+        formatHighlightedText(chinese,chineseMarks?.[lineNumber]?.[from]||[])+'</p></div>').join('');
       return '<div class="transcript-turn"'+lineAttr+'>'+pairs+'</div>';
     }).join('');
     return '<section class="part-question-group" data-transcript-group="'+i+'"><h3>'+label+'</h3>'+html+'</section>';
@@ -184,13 +187,18 @@ function renderQuestionGroups(idx,translated) {
 
 function selectedTranscriptText(panel) {
   const selection=window.getSelection();
-  if(!dialog.open || panel.hidden || !selection || selection.isCollapsed || !selection.rangeCount)return [];
+  if(!dialog.open || !panel || panel.hidden || !selection || selection.isCollapsed || !selection.rangeCount)return [];
   const range=selection.getRangeAt(0);
   if(!panel.contains(range.startContainer) || !panel.contains(range.endContainer))return [];
   const marks=[];
-  for(const paragraph of panel.querySelectorAll('[data-transcript-line]')){
+  for(const paragraph of panel.querySelectorAll('p[data-transcript-line], p[data-transcript-offset]')){
     const offsets=selectedTextOffsets(range,paragraph);
-    if(offsets)marks.push({line:paragraph.dataset.transcriptLine,...offsets});
+    if(!offsets)continue;
+    const line=paragraph.closest('[data-transcript-line]').dataset.transcriptLine;
+    const offset=Number(paragraph.dataset.transcriptOffset||0);
+    marks.push(paragraph.lang==='zh-CN'
+      ? {line,sentence:offset,...offsets}
+      : {line,from:offset+offsets.from,to:offset+offsets.to});
   }
   return marks;
 }
@@ -199,24 +207,31 @@ function syncTranscriptHighlight() {
   if(!dialog.open)return;
   const button=dialog.querySelector('#transcript-highlight');
   if(!button)return;
-  const disabled=!selectedTranscriptText(dialog.querySelector('#part-script-en')).length;
+  const panel=dialog.querySelector('.part-script:not([hidden])');
+  const disabled=!selectedTranscriptText(panel).length;
   button.disabled=disabled;
-  dialog.querySelector('#transcript-reference').disabled=disabled;
+  dialog.querySelector('#transcript-reference').disabled=disabled || panel?.id!=='part-script-en';
 }
 
 document.addEventListener('selectionchange',syncTranscriptHighlight);
 
-function highlightTranscript(panel,idx) {
+function highlightTranscript(panels,active,idx) {
+  const panel=panels[active];
   const selected=selectedTranscriptText(panel);
   if(!selected.length)return;
-  attempt.transcriptMarks??={};
-  const marks=attempt.transcriptMarks[idx]??={};
-  for(const {line,...offsets} of selected){
-    (marks[line]??=[]).push(offsets);
+  for(const {line,sentence,from,to} of selected){
+    if(sentence===undefined){
+      const marks=(attempt.transcriptMarks??={})[idx]??={};
+      (marks[line]??=[]).push({from,to});
+    }else{
+      const marks=(attempt.transcriptChineseMarks??={})[idx]??={};
+      const sentences=marks[line]??={};
+      (sentences[sentence]??=[]).push({from,to});
+    }
   }
   const position=panel.scrollTop;
   window.getSelection().removeAllRanges();
-  panel.innerHTML=renderQuestionGroups(idx,false);
+  panels.forEach((view,i)=>{view.innerHTML=renderQuestionGroups(idx,i===1)});
   panel.scrollTop=position;
   syncTranscriptHighlight();
   put();
@@ -243,7 +258,7 @@ function showPartTranscript(part,translated) {
   const heading='Test '+testNumber+' · Part '+(part+1);
   const sections='<div class="part-transcript-tools"><div class="part-language" role="group" aria-label="Transcript language">' +
     '<button type="button" id="script-en">English transcript</button><button type="button" id="script-zh">Bilingual transcript</button>' +
-    '<button type="button" id="transcript-highlight" title="Select text in the English transcript first" disabled>Highlight selection</button>' +
+    '<button type="button" id="transcript-highlight" title="Select transcript text first" disabled>Highlight selection</button>' +
     '<button type="button" id="transcript-reference" title="Select text in the English transcript first" disabled>Translation and notes</button></div>' +
     transcriptPlayer()+'</div>' +
     '<div class="transcript-content"><article id="part-script-en" class="part-script" lang="en" hidden>'+renderQuestionGroups(idx,false)+'</article>' +
@@ -258,10 +273,7 @@ function showPartTranscript(part,translated) {
   const reference=dialog.querySelector('#transcript-reference');
   const notes=dialog.querySelector('.transcript-study');
   highlighter.onpointerdown=event=>event.preventDefault();
-  highlighter.onclick=()=>{
-    highlightTranscript(panels[0],idx);
-    panels[1].innerHTML=renderQuestionGroups(idx,true);
-  };
+  highlighter.onclick=()=>highlightTranscript(panels,active,idx);
   reference.onpointerdown=event=>event.preventDefault();
   reference.onclick=()=>{
     const segments=selectedTranscriptText(panels[0]);
@@ -289,7 +301,6 @@ function showPartTranscript(part,translated) {
       buttons[i].setAttribute('aria-pressed',i===language);
     });
     active=language;
-    highlighter.hidden=language!==0;
     reference.hidden=language!==0;
     if(language!==0)notes.hidden=true;
     syncTranscriptHighlight();
