@@ -142,6 +142,13 @@
     </div>
   </div>
 
+  <dialog class="dictionary-dialog" id="dictionaryDialog" aria-labelledby="dictionaryTitle">
+    <div class="modal-head">
+      <h2 id="dictionaryTitle"></h2>
+      <button type="button" class="close-btn" id="dictionaryClose" aria-label="Close dictionary">×</button>
+    </div>
+    <div id="libraryDictionary"></div>
+  </dialog>
 
 <script src="../harvey-cloud.js"></script>
 <script>
@@ -382,7 +389,8 @@
 
   function defaultWord(def,example){
     return {def: def||"", repetition:0, interval:0, easiness:2.5, due: todayStr(),
-            lapses:0, added: todayStr(), lastReview: null, phonetic:"", audio:"", example:example||"", updatedAt:Date.now()};
+            lapses:0, added: todayStr(), lastReview: null, phonetic:"", audio:"", example:example||"",
+            exampleSource:example?"saved":"", updatedAt:Date.now()};
   }
   function freshState(){
     return { words:{}, settings:{ newPerDay:20, autoEnrich:true }, learned:0, activity:{} };
@@ -454,8 +462,8 @@
       if(state.words[key]){
         duplicates++;
         if(!state.words[key].def && def){ state.words[key].def = def; state.words[key].updatedAt=Date.now(); updated++; }
-        if(!state.words[key].example && example){ state.words[key].example=example; state.words[key].updatedAt=Date.now(); updated++; }
-        if((!state.words[key].phonetic || !state.words[key].def || !state.words[key].example) && !queued[key]){ keys.push(key); queued[key]=1; }
+        if(!state.words[key].example && example){ state.words[key].example=example; state.words[key].exampleSource="saved"; state.words[key].updatedAt=Date.now(); updated++; }
+        if(needsEnrichment(key) && !queued[key]){ keys.push(key); queued[key]=1; }
         continue;
       }
       state.words[key] = defaultWord(def,example);
@@ -469,7 +477,6 @@
   }
 
   /* ============ 联网词典：音标、发音、英文释义、中文翻译 ============ */
-  var POS_ZH = {noun:"n.",verb:"v.",adjective:"adj.",adverb:"adv.",pronoun:"pron.",preposition:"prep.",conjunction:"conj.",interjection:"int.",exclamation:"int.",determiner:"det.",numeral:"num."};
   function fetchJSON(url, timeout){
     var controller = typeof AbortController === "function" ? new AbortController() : null;
     var timer = controller ? setTimeout(function(){ controller.abort(); }, timeout||12000) : null;
@@ -488,17 +495,6 @@
     if(!inner) return false;
     return /\d/.test(inner) || (/\s/.test(inner) && /^[A-Z\s]+$/.test(inner));
   }
-  function deepFind(obj,names,depth){
-    if(!obj || depth>7) return "";
-    if(Array.isArray(obj)){ for(var i=0;i<obj.length;i++){ var a=deepFind(obj[i],names,depth+1); if(a) return a; } return ""; }
-    if(typeof obj!=="object") return "";
-    var keys=Object.keys(obj);
-    for(var j=0;j<keys.length;j++){
-      if(names.indexOf(keys[j].toLowerCase())>=0 && typeof obj[keys[j]]==="string" && obj[keys[j]].trim()) return obj[keys[j]].trim();
-    }
-    for(var k=0;k<keys.length;k++){ var b=deepFind(obj[keys[k]],names,depth+1); if(b) return b; }
-    return "";
-  }
   function normalizePos(pos){
     pos=(pos||"").toLowerCase().replace(/\s+/g,"");
     var map={n:"n.",noun:"n.",v:"v.",verb:"v.",vt:"v.",vi:"v.",adj:"adj.",adjective:"adj.",adv:"adv.",adverb:"adv.",pronoun:"pron.",preposition:"prep.",conjunction:"conj.",interjection:"int.",exclamation:"int.",determiner:"det.",numeral:"num."};
@@ -506,12 +502,6 @@
   }
   function cleanSenseText(text){
     return (text||"").replace(/^[-•·\s]+/,"").replace(/\s+/g," ").trim();
-  }
-  function translationSeed(text){
-    text=cleanSenseText(text).split(/[;；]/)[0];
-    var colon=text.search(/[:：]/); if(colon>3) text=text.slice(0,colon);
-    var sentence=text.search(/[.!?。！？]/); if(sentence>8) text=text.slice(0,sentence);
-    return text.length>90?text.slice(0,90):text;
   }
   function conciseSense(text){
     text=cleanSenseText(text).replace(/^[（(][^）)]{1,8}[）)]\s*/,"").replace(/[;；。,.，]+$/g,"");
@@ -526,172 +516,157 @@
     var m=text.match(/^(n|noun|v|verb|vt|vi|adj|adjective|adv|adverb|pron|pronoun|prep|preposition|conj|conjunction|int|interjection|det|determiner|num|numeral)\.?\s*[:：]?\s*(.+)$/i);
     return {pos:normalizePos(m?m[1]:fallbackPos),text:cleanSenseText(m?m[2]:text)};
   }
-  function collectChinaSenses(obj,depth,out){
-    if(!obj||depth>8) return out;
-    if(Array.isArray(obj)){ obj.forEach(function(v){ collectChinaSenses(v,depth+1,out); }); return out; }
-    if(typeof obj!=="object") return out;
-    Object.keys(obj).forEach(function(k){
-      var v=obj[k], isMeaning=/^(explains?|translations?|meanings?|means?)$/i.test(k);
-      if(isMeaning){
-        (Array.isArray(v)?v:[v]).forEach(function(x){
-          if(typeof x==="string"){ var s=senseFromText(x,""); if(s&&s.text) out.push(s); }
-        });
-      } else if(typeof v==="object") collectChinaSenses(v,depth+1,out);
-    });
-    return out;
-  }
-  function distinctEnough(a,b){
-    var aw=cleanSenseText(a).toLowerCase().split(/[^a-z\u4e00-\u9fff]+/).filter(function(x){return x.length>1;});
-    var bw=cleanSenseText(b).toLowerCase().split(/[^a-z\u4e00-\u9fff]+/).filter(function(x){return x.length>1;});
-    if(!aw.length||!bw.length) return a!==b;
-    var same=aw.filter(function(x){return bw.indexOf(x)>=0;}).length;
-    return same/Math.min(aw.length,bw.length)<0.65;
-  }
-  function selectSenses(senses,limit){
-    limit=limit||2; var clean=[], seen={};
-    (senses||[]).forEach(function(s){
-      if(!s) return; var item={pos:normalizePos(s.pos),text:cleanSenseText(s.text||s.english)};
-      var id=item.pos+"|"+item.text.toLowerCase();
-      if(item.text&&!seen[id]){seen[id]=1;clean.push(item);}
-    });
-    var chosen=[], usedPos={};
-    clean.forEach(function(s){ if(chosen.length<limit&&!usedPos[s.pos||"?"]){chosen.push(s);usedPos[s.pos||"?"]=1;} });
-    clean.forEach(function(s){
-      if(chosen.length>=limit||chosen.indexOf(s)>=0) return;
-      var peers=chosen.filter(function(x){return x.pos===s.pos;});
-      if(!peers.length||peers.every(function(x){return distinctEnough(x.text,s.text);})) chosen.push(s);
-    });
-    return chosen.slice(0,limit);
-  }
-  function sensesToDef(senses){
-    return selectSenses(senses,2).map(function(s){return (s.pos?s.pos+" ":"")+conciseSense(s.text);}).join("｜");
-  }
   function compactStoredDef(def){
     return String(def||"").split(/\s*[｜|]\s*/).slice(0,2).map(function(part){
       var s=senseFromText(part,""); return s?(s.pos?s.pos+" ":"")+conciseSense(s.text):conciseSense(part);
     }).filter(Boolean).join("｜");
   }
-  function lookupChina(key){
-    var url="https://apii.xianyuw.cn/api/v1/youdao-translate?text="+encodeURIComponent(key)+"&from=en&to=zh-CHS";
-    return fetchJSON(url,6500).then(function(data){
-      var root=data&&data.data, zh=root&&root.result;
-      if(!root || !zh || zh.toLowerCase()===key.toLowerCase()) throw new Error("no chinese result");
-      var ph=deepFind(root.detail||root,["phonetic","ukphone","usphone","phone","pronunciation"],0);
-      var senses=selectSenses(collectChinaSenses(root.detail||root,0,[]),2);
-      return {zh:zh,senses:senses,phonetic:cleanPhonetic(ph),source:"youdao-mirror"};
-    });
+  var DICTIONARY_CACHE = "harvey_vocab_dictionary_v1";
+  var dictionaryCache = Object.create(null), pendingDictionary = new Map();
+  try { Object.assign(dictionaryCache, JSON.parse(localStorage.getItem(DICTIONARY_CACHE)||"{}")); } catch(e){}
+
+  function plainDictionaryText(html){
+    var template=document.createElement("template");
+    template.innerHTML=String(html||"");
+    template.content.querySelectorAll("script,style").forEach(function(node){node.remove();});
+    return cleanSenseText(template.content.textContent);
   }
-  function lookupDatamuse(key){
-    var url="https://api.datamuse.com/words?sp="+encodeURIComponent(key)+"&qe=sp&md=dpr&ipa=1&max=1";
-    return fetchJSON(url,6500).then(function(data){
-      var item=data&&data[0]; if(!item || (item.word||"").toLowerCase()!==key.toLowerCase()) throw new Error("not found");
-      var tags=item.tags||[], ph="", pos="", english="", senses=[], allowed=[];
-      tags.forEach(function(t){
-        if(t.indexOf("pron:")===0) ph=t.slice(5);
-        else if(/^(n|v|adj|adv)$/.test(t)){ var p=normalizePos(t); if(!pos) pos=p; if(allowed.indexOf(p)<0) allowed.push(p); }
+  function verifiedExamples(examples,key){
+    var word=key.toLowerCase().replace(/’/g,"'");
+    var forms=[word,word+"s",word+"es",word+"ed",word+"ing"];
+    if(word.endsWith("e")) forms.push(word+"d",word.slice(0,-1)+"ing");
+    if(word.endsWith("y")) forms.push(word.slice(0,-1)+"ies",word.slice(0,-1)+"ied");
+    if(/[aeiou][^aeiouwxy]$/.test(word)) forms.push(word+word.slice(-1)+"ed",word+word.slice(-1)+"ing");
+    return examples.map(plainDictionaryText).filter(function(sentence,index,list){
+      var words=" "+sentence.toLowerCase().replace(/’/g,"'").replace(/[^a-z'-]+/g," ")+" ";
+      return /[.!?][”"'’\])]*$/.test(sentence) && sentence.length<=500 && list.indexOf(sentence)===index &&
+        forms.some(function(form){return words.includes(" "+form+" ");});
+    }).slice(0,2);
+  }
+  function dictionarySense(pos,definition,examples,key){
+    return {pos:normalizePos(pos),text:plainDictionaryText(definition),examples:verifiedExamples(examples,key)};
+  }
+  function balancedSenses(groups){
+    var senses=[], seen=new Set(), depth=Math.max(0,...groups.map(function(group){return group.length;}));
+    for(var i=0;i<depth&&senses.length<16;i++){
+      groups.forEach(function(group){
+        var sense=group[i];
+        if(!sense||!sense.text||senses.length>=16) return;
+        var id=sense.pos+"|"+sense.text.toLowerCase().replace(/[.;]+$/,"");
+        if(seen.has(id)) return;
+        seen.add(id); senses.push(sense);
       });
-      (item.defs||[]).forEach(function(d){
-        var parts=d.split("\t"), p=normalizePos(parts.length>1?parts.shift():pos), body=parts.join(" ")||d;
-        if(!allowed.length || allowed.indexOf(p)>=0) senses.push({pos:p,text:body});
+    }
+    if(!senses.length) throw new Error("No English definitions");
+    return senses;
+  }
+  function lookupWiktionary(key){
+    var url="https://en.wiktionary.org/api/rest_v1/page/definition/"+encodeURIComponent(key);
+    return fetchJSON(url,5000).then(function(data){
+      var groups=(data.en||[]).map(function(entry){
+        return (entry.definitions||[]).map(function(d){
+          var examples=(d.parsedExamples||[]).map(function(e){return e?.example;}).concat(d.examples||[]);
+          return dictionarySense(entry.partOfSpeech,d.definition,examples,key);
+        });
       });
-      senses=selectSenses(senses,2); english=senses[0]?senses[0].text:"";
-      return {phonetic:cleanPhonetic(ph),english:english,pos:pos,senses:senses,source:"datamuse"};
+      return {source:"Wiktionary",senses:balancedSenses(groups)};
     });
   }
   function lookupFreeDictionary(key){
     var url="https://api.dictionaryapi.dev/api/v2/entries/en/"+encodeURIComponent(key);
     return fetchJSON(url,4200).then(function(data){
-      var entry=data&&data[0]; if(!entry) throw new Error("not found");
-      var phonetic=entry.phonetic||"", audio="";
-      (entry.phonetics||[]).forEach(function(p){ if(!phonetic&&p.text) phonetic=p.text; if(!audio&&p.audio) audio=p.audio.indexOf("//")===0?"https:"+p.audio:p.audio; });
-      var senses=[], example="";
-      (entry.meanings||[]).forEach(function(m){ (m.definitions||[]).slice(0,2).forEach(function(d){
-        if(d.definition) senses.push({pos:POS_ZH[m.partOfSpeech]||m.partOfSpeech||"",text:d.definition});
-        if(!example&&d.example) example=cleanSenseText(d.example);
-      }); });
-      senses=selectSenses(senses,2);
-      return {phonetic:cleanPhonetic(phonetic),audio:audio,english:senses[0]?senses[0].text:"",pos:senses[0]?senses[0].pos:"",senses:senses,example:example,source:"free-dictionary"};
-    });
-  }
-  function translateToChinese(text){
-    if(!text) return Promise.resolve("");
-    var cn="https://apii.xianyuw.cn/api/v1/youdao-translate?text="+encodeURIComponent(text)+"&from=en&to=zh-CHS";
-    return fetchJSON(cn,6500).then(function(data){ var t=data&&data.data&&data.data.result; if(!t||t===text) throw 0; return t; }).catch(function(){
-      var mm="https://api.mymemory.translated.net/get?q="+encodeURIComponent(text)+"&langpair=en%7Czh-CN";
-      return fetchJSON(mm,6500).then(function(data){var t=data&&data.responseData&&data.responseData.translatedText;return t&&t!==text?t:"";}).catch(function(){return "";});
-    });
-  }
-  function translateSenseToChinese(text){
-    if(!text) return Promise.resolve("");
-    var mm="https://api.mymemory.translated.net/get?q="+encodeURIComponent(text)+"&langpair=en%7Czh-CN";
-    return fetchJSON(mm,6500).then(function(data){
-      var t=data&&data.responseData&&data.responseData.translatedText;
-      if(!t||t===text) throw 0; return t;
-    }).catch(function(){ return translateToChinese(text); });
-  }
-  function completeLookup(cn,lex){
-    cn=cn||{}; lex=lex||{};
-    var lexSenses=selectSenses(lex.senses||[],2), cnSenses=selectSenses(cn.senses||[],2);
-    var finish=function(senses){
-      var def=sensesToDef(senses);
-      if(!def && !cn.phonetic && !lex.phonetic) throw new Error("no usable result");
-      return {phonetic:cn.phonetic||lex.phonetic||"",audio:lex.audio||"",def:def,english:lex.english||"",example:lex.example||"",source:[cn.source,lex.source].filter(Boolean).join("+")};
-    };
-    if(cnSenses.length>=2) return Promise.resolve(finish(cnSenses));
-    if(!lexSenses.length) return Promise.resolve(finish(cnSenses.length?cnSenses:[{pos:"",text:cn.zh||""}]));
-    if(cn.zh){
-      var mainPos=lexSenses[0].pos||lex.pos||"", primary={pos:mainPos,text:cn.zh};
-      var other=lexSenses.find(function(s){return s.pos&&s.pos!==mainPos;});
-      if(!other) return Promise.resolve(finish([primary]));
-      return translateSenseToChinese(translationSeed(other.text)).then(function(zh){
-        return finish([primary,{pos:other.pos,text:zh||other.text}]);
+      var groups=[],phonetic="",audio="";
+      (Array.isArray(data)?data:[]).forEach(function(entry){
+        if(!phonetic) phonetic=cleanPhonetic(entry.phonetic);
+        (entry.phonetics||[]).forEach(function(p){
+          if(!phonetic) phonetic=cleanPhonetic(p.text);
+          if(!audio&&/^(https:\/\/|\/\/)/.test(p.audio||"")) audio=p.audio.startsWith("//")?"https:"+p.audio:p.audio;
+        });
+        (entry.meanings||[]).forEach(function(m){
+          groups.push((m.definitions||[]).map(function(d){
+            return dictionarySense(m.partOfSpeech,d.definition,d.example?[d.example]:[],key);
+          }));
+        });
       });
-    }
-    return Promise.all(lexSenses.map(function(s){
-      return translateSenseToChinese(translationSeed(s.text)).then(function(zh){return {pos:s.pos,text:zh||cn.zh||s.text};});
-    })).then(finish);
+      return {source:"Free Dictionary",senses:balancedSenses(groups),phonetic:phonetic,audio:audio};
+    });
   }
-  function lookupWord(key){
-    // 优先并行请求国内翻译源和 Datamuse；两者都失败时才请求原词典，避免 522 拖慢录入。
-    return Promise.all([lookupChina(key).catch(function(){return null;}),lookupDatamuse(key).catch(function(){return null;})]).then(function(parts){
-      if(parts[0]&&parts[0].phonetic || parts[1]&&parts[1].phonetic || PHONETICS[key]){
-        if(PHONETICS[key] && !(parts[0]&&parts[0].phonetic) && parts[1]) parts[1].phonetic=PHONETICS[key];
-        return completeLookup(parts[0],parts[1]);
-      }
-      if(parts[0]||parts[1]) return lookupFreeDictionary(key).then(function(fd){
-        var lex=parts[1]||{}; lex.phonetic=fd.phonetic||""; lex.audio=fd.audio||lex.audio||"";
-        if(!lex.senses||!lex.senses.length) lex.senses=fd.senses;
-        return completeLookup(parts[0],lex);
-      }).catch(function(){return completeLookup(parts[0],parts[1]);});
-      return lookupFreeDictionary(key).then(function(lex){return completeLookup(null,lex);});
-    }).then(function(info){
-      if(info.example) return info;
-      return lookupFreeDictionary(key).then(function(fd){
-        info.example=fd.example||"";
-        if(!info.audio&&fd.audio) info.audio=fd.audio;
-        if(!info.phonetic&&fd.phonetic) info.phonetic=fd.phonetic;
-        return info;
-      }).catch(function(){return info;});
+  function datamuseWord(key){
+    var url="https://api.datamuse.com/words?sp="+encodeURIComponent(key)+"&qe=sp&md=dp&ipa=1&max=1";
+    return fetchJSON(url,5000).then(function(data){
+      var item=data&&data[0];
+      if(!item||(item.word||"").toLowerCase()!==key.toLowerCase()) throw new Error("No exact match");
+      var pron=(item.tags||[]).find(function(tag){return tag.startsWith("pron:");});
+      var groups={};
+      (item.defs||[]).forEach(function(value){
+        var parts=value.split("\t"), pos=normalizePos(parts.length>1?parts.shift():"");
+        (groups[pos]||(groups[pos]=[])).push(dictionarySense(pos,parts.join(" "),[],key));
+      });
+      return {source:"Datamuse",groups:Object.values(groups),phonetic:cleanPhonetic(pron&&pron.slice(5))};
+    });
+  }
+  function getDictionary(key,refresh){
+    if(pendingDictionary.has(key)) return pendingDictionary.get(key);
+    if(dictionaryCache[key]&&!refresh) return Promise.resolve(dictionaryCache[key]);
+    if(navigator.onLine===false) return Promise.reject(new Error("Offline"));
+    var request=lookupWiktionary(key).catch(function(){return lookupFreeDictionary(key);}).catch(function(){
+      return datamuseWord(key).then(function(entry){
+        return {source:entry.source,senses:balancedSenses(entry.groups),phonetic:entry.phonetic};
+      });
+    }).then(function(entry){
+      delete dictionaryCache[key]; dictionaryCache[key]=entry;
+      var keys=Object.keys(dictionaryCache);
+      keys.slice(0,Math.max(0,keys.length-160)).forEach(function(k){delete dictionaryCache[k];});
+      try {localStorage.setItem(DICTIONARY_CACHE,JSON.stringify(dictionaryCache));} catch(e){}
+      return entry;
+    }).finally(function(){pendingDictionary.delete(key);});
+    pendingDictionary.set(key,request);
+    return request;
+  }
+  function needsEnrichment(key){
+    var w=state.words[key];
+    return w&&(!phon(key)||!w.def||!dictionaryCache[key]);
+  }
+  function translatedGloss(sense){
+    var text=sense.text;
+    if(text.length>300) return Promise.resolve(text);
+    var url="https://api.mymemory.translated.net/get?q="+encodeURIComponent(text)+"&langpair=en%7Czh-CN";
+    return fetchJSON(url,4500).then(function(data){
+      var zh=plainDictionaryText(data.responseData&&data.responseData.translatedText);
+      return Number(data.responseStatus)===200&&/[\u3400-\u9fff]/.test(zh)?zh:text;
+    }).catch(function(){return text;});
+  }
+  function lookupWord(key,refresh){
+    return getDictionary(key,refresh).then(function(entry){
+      var phonetic=entry.phonetic||phon(key);
+      var pronunciation=phonetic?Promise.resolve(phonetic):datamuseWord(key).then(function(d){return d.phonetic;}).catch(function(){return "";});
+      var gloss=state.words[key]?.def?Promise.resolve(""):Promise.all(entry.senses.slice(0,2).map(function(sense){
+        return translatedGloss(sense).then(function(text){return (sense.pos?sense.pos+" ":"")+text;});
+      })).then(function(parts){return parts.join("｜");});
+      return Promise.all([pronunciation,gloss]).then(function(parts){
+        return {phonetic:parts[0],def:parts[1],audio:entry.audio||""};
+      });
     });
   }
   var enrichStatus={};
   function enrichWords(keys,force){
-    keys = (keys || Object.keys(state.words)).filter(function(k){
-      var w=state.words[k]; return w && (force || !w.phonetic || !w.def || !w.example);
-    });
+    keys = (keys || Object.keys(state.words)).filter(function(k){return state.words[k]&&(force||needsEnrichment(k));});
     if(!keys.length){ setImportProgress(0,0,false); return Promise.resolve({ok:0,failed:0}); }
     var done=0, ok=0, failed=0;
     setImportProgress(0,keys.length,true);
     return keys.reduce(function(p,key){
       return p.then(function(){
         enrichStatus[key]="loading"; renderLibrary($("search").value);
-        return lookupWord(key).then(function(info){
+        var original=state.words[key];
+        return lookupWord(key,force).then(function(info){
           var w=state.words[key]; if(!w) return;
-          if(info.phonetic) w.phonetic=info.phonetic;
-          if(info.audio) w.audio=info.audio;
-          if((force||!w.def) && info.def) w.def=info.def;
-          if((force||!w.example) && info.example) w.example=info.example;
-          w.lookupSource=info.source||""; w.updatedAt=Date.now(); enrichStatus[key]="success"; ok++;
+          if(w===original){
+            var next={phonetic:info.phonetic,audio:info.audio,def:w.def?"":info.def};
+            var changed=Object.keys(next).filter(function(field){return next[field]&&next[field]!==w[field];});
+            changed.forEach(function(field){w[field]=next[field];});
+            if(changed.length) w.updatedAt=Date.now();
+          }
+          enrichStatus[key]="success"; ok++;
         }).catch(function(){ enrichStatus[key]="failed"; failed++; }).then(function(){
           done++; setImportProgress(done,keys.length,true); save(); renderLibrary($("search").value);
         });
@@ -884,14 +859,14 @@
     if(!existed){ state.words[key]=defaultWord(def,example); state.words[key].word=display; quickAdded++; }
     else {
       if(def) state.words[key].def=def;
-      if(example) state.words[key].example=example;
+      if(example){state.words[key].example=example; state.words[key].exampleSource="saved";}
       if(def||example) state.words[key].updatedAt=Date.now();
     }
     save(); quickDirty=true;
     $("quickCount").textContent="Added this session: "+quickAdded;
     $("quickToast").textContent=existed ? "“"+display+"” is already in your library." : "Added “"+display+"”.";
     $("quickWord").value=""; $("quickDef").value=""; $("quickExample").value=""; $("quickWord").focus(); renderDashboard();
-    if(state.settings.autoEnrich && (!state.words[key].phonetic || !state.words[key].def || !state.words[key].example)) enrichWords([key]).then(function(){ renderDashboard(); });
+    if(state.settings.autoEnrich && needsEnrichment(key)) enrichWords([key]).then(function(){ renderDashboard(); });
   }
 
   /* ============ SM-2 复习 ============ */
@@ -1091,6 +1066,9 @@
     function move(index){
       if(index<0||index>=recallDeck.length) return;
       qIndex=index; renderStudy();
+      var view=$("studyView");
+      var screenTop=view.getBoundingClientRect().top+(recallFrame?.getBoundingClientRect().top||0);
+      if(touchRecallActive()&&screenTop<0) view.scrollIntoView({block:"start"});
     }
     if(prev) prev.onclick=function(){move(qIndex-1);};
     if(next) next.onclick=function(){
@@ -1102,19 +1080,88 @@
     if(jump) jump.onkeydown=function(e){if(e.key==="Enter"){e.preventDefault();e.stopPropagation();doJump();}};
     window._quizPrev=function(){if(qIndex>0) move(qIndex-1);};
     window._quizNext=function(){if(next&&!next.disabled) next.click();};
+    syncEmbeddedRecallNav();
   }
-  function fallbackExample(word,def){
-    var pos=primaryPos(def), display=word||"this word";
-    if(pos==="adj.") return "The conditions became "+display+" during the day.";
-    if(pos==="v.") return "They decided to "+display+" it carefully.";
-    if(pos==="adv.") return "The situation changed "+display+" over time.";
-    if(pos==="n.") return "We learned about "+display+" in class.";
-    return "This sentence uses the word “"+display+"” in context.";
+  var touchRecallLayout=window.matchMedia("(max-width: 760px), (pointer: coarse)");
+  var mobileAgent=/iPad|iPhone|Android/i.test(navigator.userAgent) ||
+    (/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
+  var recallFrame=window.frameElement;
+  function touchRecallActive(){return mobileAgent||touchRecallLayout.matches;}
+  function updateRecallLayout(){
+    document.documentElement.classList.toggle("touch-recall",touchRecallActive());
+    syncEmbeddedRecallNav();
   }
-  function examplePanelHtml(example,word,def){
-    var isTemplate=!example, sentence=example||fallbackExample(word,def);
-    return '<div class="example-card" id="exampleCard"><span class="example-label">'+(isTemplate?'Example template':'Example')+'</span>'+
-      '<span'+(isTemplate?' class="example-empty"':'')+'>'+esc(sentence)+'</span></div>';
+  updateRecallLayout();
+  touchRecallLayout.addEventListener("change",updateRecallLayout);
+  function syncEmbeddedRecallNav(){
+    var nav=$("nextWord")?.parentElement;
+    if(!recallFrame||!nav||!touchRecallActive()||!$("study").classList.contains("active")) return;
+    var viewport=window.parent.visualViewport;
+    var visibleBottom=viewport?viewport.offsetTop+viewport.height:window.parent.innerHeight;
+    var covered=Math.max(0,Math.ceil(recallFrame.getBoundingClientRect().bottom-visibleBottom));
+    nav.style.setProperty("--frame-bottom",Math.min(covered,Math.max(0,innerHeight-nav.offsetHeight))+"px");
+  }
+  if(recallFrame){
+    var parentViewport=window.parent.visualViewport, embeddedNavListeners;
+    function watchEmbeddedViewport(){
+      embeddedNavListeners=new AbortController();
+      var options={passive:true,signal:embeddedNavListeners.signal};
+      window.parent.addEventListener("scroll",syncEmbeddedRecallNav,options);
+      parentViewport?.addEventListener("resize",syncEmbeddedRecallNav,options);
+      parentViewport?.addEventListener("scroll",syncEmbeddedRecallNav,options);
+    }
+    watchEmbeddedViewport();
+    window.addEventListener("resize",syncEmbeddedRecallNav);
+    window.addEventListener("pagehide",function(){embeddedNavListeners.abort();});
+    window.addEventListener("pageshow",function(event){if(event.persisted) watchEmbeddedViewport();});
+  }
+  function dictionaryDetails(target,key,refresh){
+    var word=state.words[key];
+    if(!word) return;
+    target.dataset.word=key;
+    var saved=word.example&&(word.exampleSource==="saved"||!word.lookupSource)
+      ? '<p class="saved-example"><b>Your example</b> '+esc(word.example)+'</p>' : "";
+    target.innerHTML=saved+'<p class="note" role="status">Looking up meanings and examples…</p>';
+    getDictionary(key,refresh).then(function(entry){
+      if(!target.isConnected||target.dataset.word!==key) return;
+      var groups=new Map();
+      entry.senses.forEach(function(sense){
+        var pos=sense.pos||"Other";
+        if(!groups.has(pos)) groups.set(pos,[]);
+        groups.get(pos).push(sense);
+      });
+      var sections=Array.from(groups,function(group){
+        var senses=group[1].map(function(sense){
+          return '<li>'+esc(sense.text)+sense.examples.map(function(sentence){
+            return '<blockquote>'+esc(sentence)+'</blockquote>';
+          }).join("")+'</li>';
+        }).join("");
+        return '<section><h4>'+esc(group[0])+'</h4><ol>'+senses+'</ol></section>';
+      }).join("");
+      var sources={
+        Wiktionary:"https://en.wiktionary.org/wiki/"+encodeURIComponent(key)+"#English",
+        "Free Dictionary":"https://dictionaryapi.dev/",
+        Datamuse:"https://www.datamuse.com/api/"
+      };
+      var missing=entry.senses.some(function(s){return s.examples.length;})?"":'<p class="note">No verified example is available for this word.</p>';
+      target.innerHTML=saved+sections+missing+'<p class="note">Source <a target="_blank" rel="noopener noreferrer" href="'+sources[entry.source]+'">'+esc(entry.source)+'</a></p>';
+    }).catch(function(){
+      if(!target.isConnected||target.dataset.word!==key) return;
+      target.innerHTML=saved+'<p class="note" role="status">Dictionary details are unavailable. Check your connection and try again.</p><button class="btn gray" type="button">Retry lookup</button>';
+      target.querySelector("button").onclick=function(){dictionaryDetails(target,key,true);};
+    });
+  }
+  function studyDictionaryHtml(){
+    return '<details class="study-dictionary" id="studyDictionary"><summary>Meanings &amp; examples</summary><div class="dictionary-content"></div></details>';
+  }
+  function revealStudyDictionary(key){
+    var details=$("studyDictionary");
+    details.hidden=false;
+    details.ontoggle=function(){
+      var content=details.querySelector(".dictionary-content");
+      if(details.open&&!content.hasChildNodes()) dictionaryDetails(content,key);
+    };
+    details.open=true;
   }
   function renderRecallCard(v, card){
     var key=card.key, w=state.words[key], display=w.word||key, remain=recallDeck.filter(function(x){return !x.answered;}).length;
@@ -1122,7 +1169,7 @@
     var extra=(w.repetition===0&&!w.lastReview)?'<span class="tag">Choose the meaning</span>':
       (w.lapses>0?'<span class="tag">' + w.lapses + ' previous misses</span>':'<span class="tag">Review '+(w.repetition+1)+'</span>');
     var options=choices.map(function(c,i){
-      return '<button class="quiz-option" data-choice="'+i+'"><span class="choice-key">'+(i+1)+'</span>'+formatDef(c.def)+'</button>';
+      return '<button class="quiz-option" data-choice="'+i+'"><span class="choice-key">'+(i+1)+'</span><span class="choice-definition">'+formatDef(c.def)+'</span></button>';
     }).join("");
 
     v.innerHTML='<div class="progress"><div class="bar"><i style="width:'+pct+'%"></i></div><span class="num">'+remain+' remaining</span></div>'+ 
@@ -1130,7 +1177,8 @@
       '<div class="pronunciation">'+(phonetic?'<span class="phonetic">'+esc(phonetic)+'</span>':'')+
       '<button class="audio-btn" id="audioBtn" aria-label="Listen to pronunciation">Listen</button></div>'+
       '<div class="quiz-options" id="quizOptions">'+options+'</div>'+ 
-      '<div class="quiz-feedback" id="quizFeedback" role="status"></div>'+examplePanelHtml(w.example,display,w.def)+'</div>'+recallNavHtml();
+      '<div class="quiz-feedback" id="quizFeedback" role="status"></div></div>'+recallNavHtml()+studyDictionaryHtml();
+    $("studyDictionary").hidden=true;
 
     function pick(index){
       if(card.answered||index<0||index>=choices.length) return;
@@ -1144,6 +1192,7 @@
       if(nextBtn){
         nextBtn.disabled=false;
         if(card.grade===2) nextBtn.textContent=(qIndex===recallDeck.length-1?'Finish':'Next')+' ↵';
+        syncEmbeddedRecallNav();
       }
     }
     function paintAnswer(){
@@ -1154,10 +1203,8 @@
         if(choices[i].correct) buttons[i].classList.add("correct");
       }
       if(card.grade===0){ if(buttons[card.selected]) buttons[card.selected].classList.add("wrong"); $("quizFeedback").innerHTML='<span style="color:var(--again)">Incorrect. This word will come up again.</span>'; }
-      else {
-        $("quizFeedback").innerHTML='<span style="color:var(--good)">Correct</span>';
-        var exampleCard=$("exampleCard"); if(exampleCard) exampleCard.classList.add("show");
-      }
+      else $("quizFeedback").innerHTML='<span style="color:var(--good)">Correct</span>';
+      revealStudyDictionary(key);
     }
     $("audioBtn").onclick=function(){playWord(key);};
     $("quizOptions").querySelectorAll(".quiz-option").forEach(function(b){b.onclick=function(){pick(parseInt(this.getAttribute("data-choice"),10));};});
@@ -1220,12 +1267,13 @@
     function phInline(){
       return phonetic ? ' <span style="color:var(--muted)">'+esc(phonetic)+'</span>' : '';
     }
-    function showResult(html,showExample){
+    function showResult(html){
       var ph = $("spellPhon");
       if(ph) ph.style.visibility = "visible";
       var r = $("spellResult");
-      r.innerHTML = html + (showExample?examplePanelHtml(w.example,display,w.def):"") + ' <button class="btn" id="nextBtn">Next ↵</button>';
-      var ex=$("exampleCard"); if(ex&&showExample) ex.classList.add("show");
+      r.innerHTML = html + ' <button class="btn" id="nextBtn">Next ↵</button>';
+      r.insertAdjacentHTML("afterend",studyDictionaryHtml());
+      revealStudyDictionary(key);
       $("nextBtn").onclick = next;
       window._spellNext = next;
     }
@@ -1256,12 +1304,12 @@
       if(correct && !missed){
         var g = usedHint ? 1 : 2;
         review(key, g);
-        if(usedHint){ session.hard++; showResult('<span style="color:var(--hard)">Correct with a hint</span>'+phInline(),true); }
-        else { session.good++; showResult('<span style="color:var(--good)">Correct</span>'+phInline(),true); }
+        if(usedHint){ session.hard++; showResult('<span style="color:var(--hard)">Correct with a hint</span>'+phInline()); }
+        else { session.good++; showResult('<span style="color:var(--good)">Correct</span>'+phInline()); }
       } else if(correct && missed){
-        showResult('<span style="color:var(--good)">Correct on the second try. This word will come up again.</span>'+phInline(),true);
+        showResult('<span style="color:var(--good)">Correct on the second try. This word will come up again.</span>'+phInline());
       } else {
-        showResult('<span style="color:var(--again)">Answer: <b>'+esc(display)+'</b>'+phInline()+' '+esc(w.def||'')+'</span>',false);
+        showResult('<span style="color:var(--again)">Answer: <b>'+esc(display)+'</b>'+phInline()+' '+esc(w.def||'')+'</span>');
       }
     }
     function giveUp(){
@@ -1270,7 +1318,7 @@
       for(var i=0;i<bs.length;i++){ bs[i].textContent = t[i]; bs[i].classList.add('wrong'); }
       finish();
       if(!missed){ review(key, 0); session.again++; retryQueue.push(key); }
-      showResult('<span style="color:var(--again)">Answer: <b>'+esc(display)+'</b>'+phInline()+' '+esc(w.def||'')+'</span>',false);
+      showResult('<span style="color:var(--again)">Answer: <b>'+esc(display)+'</b>'+phInline()+' '+esc(w.def||'')+'</span>');
     }
 
     input.oninput = function(){ sync(); if(input.value.length >= len) judge(input.value); };
@@ -1330,7 +1378,7 @@
       var ph = phon(key);
       var look=enrichStatus[key]||((!w.def||!ph)?"idle":""), lookText={loading:"Looking up…",success:"Looked up",failed:"Lookup failed. Retry",idle:"Lookup pending"}[look]||"";
       html += '<tr>' +
-        '<td class="w-cell">'+esc(display)+(ph?'<span class="ph">'+esc(ph)+'</span>':'')+'</td>' +
+        '<td class="w-cell"><button type="button" class="dictionary-word" data-dictionary="'+esc(key)+'" aria-label="Look up '+esc(display)+'">'+esc(display)+'</button>'+(ph?'<span class="ph">'+esc(ph)+'</span>':'')+'</td>' +
         '<td>'+esc(w.def || '—')+(lookText?'<span class="lookup-state '+look+'">'+lookText+'</span>':'')+'</td>' +
         '<td><span class="pill '+cls+'">'+status+'</span></td>' +
         '<td>'+esc(due)+'</td>' +
@@ -1339,6 +1387,12 @@
       shown++;
     });
     tbody.innerHTML = html;
+    tbody.querySelectorAll("[data-dictionary]").forEach(function(b){b.onclick=function(){
+      var key=this.getAttribute("data-dictionary");
+      $("dictionaryTitle").textContent=state.words[key].word||key;
+      $("dictionaryDialog").showModal();
+      dictionaryDetails($("libraryDictionary"),key);
+    };});
     tbody.querySelectorAll("[data-enrich]").forEach(function(b){ b.onclick=function(){ enrichWords([this.getAttribute("data-enrich")],true); }; });
     tbody.querySelectorAll("[data-say]").forEach(function(b){ b.onclick=function(){ playWord(this.getAttribute("data-say")); }; });
     tbody.querySelectorAll("[data-edit]").forEach(function(b){ b.onclick=function(){ editWord(this.getAttribute("data-edit")); }; });
@@ -1348,7 +1402,7 @@
     var w=state.words[key]; if(!w) return;
     var next=prompt("Edit definition:",w.def||""); if(next===null) return;
     var nextExample=prompt("Edit the English example (optional):",w.example||""); if(nextExample===null) return;
-    w.def=next.trim(); w.example=nextExample.trim(); w.updatedAt=Date.now(); save(); renderLibrary($("search").value); renderStudy();
+    w.def=next.trim(); w.example=nextExample.trim(); w.exampleSource=w.example?"saved":""; w.updatedAt=Date.now(); save(); renderLibrary($("search").value); renderStudy();
   }
 
   /* ============ 文件夹授权 / 自动读取 ============ */
@@ -1403,6 +1457,7 @@
 
   /* ============ 事件 ============ */
   function bindEvents(){
+    $("dictionaryClose").onclick=function(){$("dictionaryDialog").close();};
     $("quickAddBtn").onclick=openQuickAdd;
     $("quickClose").onclick=closeQuickAdd;
     $("quickModal").onclick=function(e){ if(e.target===$("quickModal")) closeQuickAdd(); };
@@ -1430,6 +1485,7 @@
         t.setAttribute("aria-current", "true");
         $(t.getAttribute("data-panel")).classList.add("active");
         if(t.getAttribute("data-panel") === "library") renderLibrary($("search").value);
+        syncEmbeddedRecallNav();
       };
     });
 

@@ -68,7 +68,7 @@ button:disabled { cursor: default; }
 .num, .hint { color: var(--muted); font-size: .82rem; font-variant-numeric: tabular-nums; }
 .card, .done { border: 1px solid var(--line); border-radius: 17px; background: var(--card); box-shadow: 0 9px 24px #5f30450b; padding: clamp(1.15rem, 3.4vw, 2.75rem); text-align: center; }
 .card { display: flex; flex-direction: column; align-items: center; gap: .55rem; min-height: 310px; }
-.tag, .example-label { color: var(--accent); font-size: .71rem; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+.tag { color: var(--accent); font-size: .71rem; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
 .word { font: 500 clamp(2.6rem, 5.65vw, 5.35rem)/1.04 var(--serif); letter-spacing: -.055em; overflow-wrap: anywhere; max-width: 100%; margin-block: .14em .06em; }
 .pronunciation { display: flex; align-items: center; justify-content: center; gap: .6rem; }
 .phonetic { color: var(--muted); font-size: 1rem; }
@@ -79,14 +79,23 @@ button:disabled { cursor: default; }
 .quiz-option { display: flex; align-items: baseline; gap: .65rem; min-height: 51px; padding: .67rem .75rem; border: 1px solid var(--line); border-radius: 9px; background: var(--sheet); text-align: left; font-size: .91rem; }
 .quiz-option:not(:disabled):hover { border-color: var(--accent); background: var(--accent-soft); }
 .choice-key { color: var(--muted); font: 700 .76rem/1 "Cascadia Mono", Consolas, monospace; }
+.choice-definition { overflow-wrap: anywhere; min-width: 0; }
 .quiz-option.correct, .box.correct { border-color: var(--good); background: var(--good-soft); color: var(--good); }
 .quiz-option.wrong, .box.wrong { border-color: var(--again); background: var(--again-soft); color: var(--again); }
 .quiz-feedback, .spell-result { font-size: .875rem; font-weight: 650; }
 .quiz-feedback:empty, .spell-result:empty { display: none; }
-.example-card { display: none; width: 100%; margin-top: .4rem; padding: .8rem 1rem; border-left: 2px solid var(--accent); background: var(--accent-soft); text-align: left; }
-.example-card.show { display: block; }
-.example-label { display: block; margin-bottom: .3rem; }
-.example-empty { color: var(--muted); }
+.study-dictionary, .dictionary-dialog { background: var(--card); border: 1px solid var(--line); border-radius: 12px; color: var(--ink); }
+.study-dictionary { width: 100%; margin-top: .65rem; padding: .7rem .9rem; text-align: left; }
+.study-dictionary summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+.dictionary-dialog { width: min(650px, calc(100% - 24px)); max-height: min(85dvh, 46rem); padding: 1rem; }
+.dictionary-dialog::backdrop { background: #25292366; }
+.dictionary-content, #libraryDictionary { font-size: .92rem; overflow-wrap: anywhere; }
+.dictionary-content h4, #libraryDictionary h4 { margin: .85em 0 .2em; color: var(--accent); }
+.dictionary-content ol, #libraryDictionary ol { margin: .2em 0 .55em; padding-inline-start: 1.5em; }
+.dictionary-content li + li, #libraryDictionary li + li { margin-top: .55em; }
+.dictionary-content blockquote, #libraryDictionary blockquote { margin: .25em 0 .35em; padding-inline-start: .7em; border-inline-start: 2px solid var(--line); color: var(--muted); font-style: italic; }
+.saved-example b { color: var(--accent); margin-inline-end: .35em; }
+.dictionary-word { border: 0; padding: 0; background: transparent; color: var(--accent); text-align: left; font-weight: inherit; text-decoration: underline; text-underline-offset: .15em; overflow-wrap: anywhere; }
 .study-nav { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: .65rem; margin-top: .7rem; }
 .jump-box { display: flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .8rem; }
 .jump-box input { width: 58px; text-align: center; }
@@ -179,6 +188,7 @@ textarea { width: 100%; min-height: 108px; margin-top: .6rem; resize: vertical; 
 @media (max-width: 760px) {
   .shell { width: calc(100% - 32px); }
   #study.active { grid-template-columns: 1fr; }
+  .study-main { grid-row: 1; }
   .study-rail { padding: .65rem .75rem; }
   .dashboard { grid-template-columns: repeat(4,minmax(0,1fr)); gap: .55rem; margin-top: .4rem; }
   .dash-item { flex-direction: column; gap: .2rem; padding: .4rem 0 0; }
@@ -194,9 +204,20 @@ textarea { width: 100%; min-height: 108px; margin-top: .6rem; resize: vertical; 
   .heading p { grid-row: 2; grid-column: 1/-1; }
   .heading .quick-add-btn { grid-row: 1; grid-column: 2; }
   .quiz-options { grid-template-columns: 1fr; }
-  .study-nav { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .jump-box { justify-content: center; grid-row: 1; grid-column: 1/-1; }
+  .card { min-height: 0; padding: .9rem; }
+  .quiz-option { min-height: 44px; padding-block: .5rem; }
+  .jump-box span:first-child { display: none; }
+  .jump-box input { width: 44px; }
   th, td { padding-inline: .42rem; }
   .row-actions { gap: .22rem; }
   .icon-btn { min-width: 27px; padding-inline: .25rem; }
 }
+.touch-recall .wrap:has(#study.active .study-nav) { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+.touch-recall .study-nav {
+  position: fixed; z-index: 5; inset: auto 0 var(--frame-bottom, 0px); margin: 0; gap: .4rem;
+  padding: .5rem max(.65rem, env(safe-area-inset-right)) calc(.5rem + env(safe-area-inset-bottom)) max(.65rem, env(safe-area-inset-left));
+  border-top: 1px solid var(--line); background: var(--paper);
+}
+.touch-recall .study-nav .nav-btn { min-height: 44px; padding-inline: .35rem; }
+.touch-recall #nextWord:not(:disabled) { background: var(--accent); border-color: var(--accent); color: white; }
+.touch-recall #nextWord:not(:disabled):hover { background: #602d38; }
