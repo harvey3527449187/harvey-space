@@ -15,7 +15,10 @@ function listeningActions() {
     '<div id="practice-player" class="practice-player"' + (full ? ' hidden' : '') + '>' +
     (full ? '' : listeningSkipButtons()) + '</div>' +
     '<div class="practice-links"><button id="part-transcript" type="button">Transcript</button>' +
-    '<button id="part-translation" type="button">Chinese translation</button>' +
+    (edition.importedPdf?'<button id="online-part-audio" type="button">Play online audio</button>'+
+      '<button id="add-part-audio" type="button">Choose audio</button>'+
+      '<a class="nav-control nav-control--quiet" href="'+editionMedia.onlineSource(testNumber)+'" target="_blank" rel="noopener">Audio source ↗</a>':
+      '<button id="part-translation" type="button">Chinese translation</button>') +
     '<button id="part-check" type="button">Check answers</button></div></div>';
 }
 
@@ -30,8 +33,19 @@ function installListeningActions() {
       audio.addEventListener(event, syncListeningControls);
     }
   }
-  document.querySelector('#part-transcript').onclick=()=>showPartTranscript(pageIndex,false);
-  document.querySelector('#part-translation').onclick=()=>showPartTranscript(pageIndex,true);
+  document.querySelector('#part-transcript').onclick=()=>edition.importedPdf
+    ? showResource('transcript',testNumber)
+    : showPartTranscript(pageIndex,false);
+  if(edition.importedPdf){
+    document.querySelector('#online-part-audio').onclick=()=>loadPracticePart(pageIndex,undefined,false,true);
+    document.querySelector('#add-part-audio').onclick=()=>{
+      const part=pageIndex;
+      const activeAttempt=attempt;
+      editionMedia.chooseAudio(testNumber,part,(stored,whole)=>{
+        if(attempt===activeAttempt && pageIndex===part)loadPracticePart(part,stored?undefined:'Audio available for this visit.',whole);
+      });
+    };
+  }else document.querySelector('#part-translation').onclick=()=>showPartTranscript(pageIndex,true);
   document.querySelector('#part-check').onclick=()=>showPartAnswers(pageIndex);
 }
 
@@ -108,13 +122,15 @@ function selectListeningPart(part) {
   if(!full)loadPracticePart(part);
 }
 
-function loadPracticePart(part) {
+function loadPracticePart(part,localNotice,preferWhole=false,online=false) {
+  if(edition.importedPdf)audio.ontimeupdate?.();
   stopAudio();
   audio.controls=true;
   audio.hidden=false;
   audio.volume=volume;
   const activeAttempt=attempt;
-  const position=activeAttempt.partPositions?.[part]||0;
+  let whole=false;
+  let position=activeAttempt.partPositions?.[part]||0;
   let loaded=false;
   audio.onloadedmetadata=()=>{
     if(position>0 && position<audio.duration)audio.currentTime=position;
@@ -122,18 +138,41 @@ function loadPracticePart(part) {
   };
   audio.ontimeupdate=()=>{
     if(loaded && attempt===activeAttempt){
-      (attempt.partPositions??={})[part]=audio.currentTime;
+      if(whole)attempt.localFullPosition=audio.currentTime;
+      else (attempt.partPositions??={})[part]=audio.currentTime;
       put();
     }
   };
   audio.onended=()=>{
-    activeAttempt.partPositions??={};
-    activeAttempt.partPositions[part]=0;
+    if(whole)activeAttempt.localFullPosition=0;
+    else (activeAttempt.partPositions??={})[part]=0;
     setSound('Part '+(part+1)+' · Finished');
     put();
   };
-  audio.onerror=()=>setSound('Could not load the recording',true);
+  audio.onerror=()=>setSound('Could not load the recording',!edition.importedPdf);
   audio.onplay=()=>setSound('Section practice');
+  if(edition.importedPdf){
+    if(online){
+      audio.src=editionMedia.onlineRecording(testNumber,part);
+      setSound('Online audio · IELTS Training Online');
+      syncListeningControls();
+      startAudio();
+      return;
+    }
+    const generation=audioGeneration;
+    const isCurrent=()=>generation===audioGeneration && attempt===activeAttempt && pageIndex===part;
+    setSound('Looking for saved audio…');
+    editionMedia.loadAudio(testNumber,part,isCurrent,preferWhole).then(media=>{
+      if(!isCurrent())return;
+      whole=media.whole;
+      if(whole)position=activeAttempt.localFullPosition||0;
+      if(media.src)audio.src=media.src;
+      const title=(whole?'Full test audio · ':'')+editionMedia.audioName();
+      setSound(media.src?(localNotice||title):'Play online or choose a local audio file.');
+      syncListeningControls();
+    });
+    return;
+  }
   audio.src='assets/Test '+testNumber+' Part '+(part+1)+'.mp3';
   setSound('Section practice');
   syncListeningControls();
@@ -306,12 +345,12 @@ function showPartTranscript(part,translated) {
 }
 
 function showPartAnswers(part) {
-  const explanations = listeningExplanations[testNumber - 1];
+  const explanations = edition.importedPdf?null:listeningExplanations[testNumber - 1];
   const rows = range(part * 10 + 1, part * 10 + 10).map(question => {
     const value = (attempt.answers[question] || '').trim();
     const result = value ? grade('listening', question, value) : null;
     const expected = answerInfo('listening', question).replaceAll('|', ' / ');
-    const [cue, reasoning] = explanations[question - 1];
+    const [cue, reasoning] = explanations?.[question - 1]||[];
     const status = result === true ? 'Correct' : result === false ? 'Incorrect' : 'Unanswered';
     const statusClass = result === true ? 'correct' : result === false ? 'incorrect' : '';
     return '<details class="part-answer" data-answer-question="' + question + '">' +
@@ -320,8 +359,8 @@ function showPartAnswers(part) {
       '<span class="part-answer-value"><small>Answer key</small> ' + esc(expected) + '</span>' +
       '<span class="part-answer-status ' + statusClass + '">' + status + '</span>' +
       '<span class="part-answer-toggle" aria-hidden="true"></span></summary>' +
-      '<div class="part-explanation"><h3>Transcript evidence</h3><p>' + esc(cue) + '</p>' +
-      '<h3>Explanation</h3><p>' + esc(reasoning) + '</p></div></details>';
+      (cue?'<div class="part-explanation"><h3>Transcript evidence</h3><p>' + esc(cue) + '</p>' +
+      '<h3>Explanation</h3><p>' + esc(reasoning) + '</p></div>':'')+'</details>';
   }).join('');
   show('Test ' + testNumber + ' · Part ' + (part + 1) + ' · Answer check',
     '<div class="part-answer-list">' + rows + '</div>', [['Keep working', closeDialog]]);

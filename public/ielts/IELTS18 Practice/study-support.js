@@ -1,6 +1,7 @@
 'use strict';
 
 function studyButtons(skill, task=0){
+  if(edition.importedPdf)return '';
   if(skill==='reading'){
     return '<div class="study-actions"><button type="button" data-study="reading-translation">Full translation</button>'+
       '<button type="button" data-study="reading">Check answers &amp; explanations</button></div>';
@@ -11,6 +12,7 @@ function studyButtons(skill, task=0){
 }
 
 function installStudySupport(){
+  if(edition.importedPdf)return;
   if(full && !readingTranslationAllowed()) return;
   const toolbar=app.querySelector('.toolbar > .tools');
   if(section!=='listening') toolbar.insertAdjacentHTML('beforeend',studyButtons(section));

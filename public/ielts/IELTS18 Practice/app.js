@@ -48,7 +48,8 @@ function home() {
     const mockStarted=sequence.some(skill=>attempts[getKey(n,skill,true)]);
     const mockComplete=sequence.every(skill=>attempts[getKey(n,skill,true)]?.submitted);
     const mockLabel=mockComplete?'Review mock':mockStarted?'Resume mock':'Full mock';
-    return '<div class="test-row"><strong>Test '+n+'</strong><div class="test-actions">'+buttons+'</div><button class="primary" data-open="full" data-test="'+n+'">'+mockLabel+' →</button></div>';
+    const mock=edition.importedPdf?'':'<button class="primary" data-open="full" data-test="'+n+'">'+mockLabel+' →</button>';
+    return '<div class="test-row"><strong>Test '+n+'</strong><div class="test-actions">'+buttons+'</div>'+mock+'</div>';
   }).join('');
   const pdf = edition.pdfPrefix+'剑桥雅思'+edition.number;
   const harveyHome = new URL('../../index.html', new URL(edition.library, document.baseURI));
@@ -61,7 +62,7 @@ function home() {
       <header class="edition-heading">
         <p class="edition-kicker">IELTS Academic</p>
         <h1>Cambridge IELTS <span>${edition.number}</span></h1>
-        <p>Practise a single skill or take Listening, Reading and Writing in sequence.</p>
+        <p>${edition.importedPdf?'Practise Listening, Reading, Writing and Speaking with your PDF.':'Practise a single skill or take Listening, Reading and Writing in sequence.'}</p>
       </header>
       <div class="edition-layout">
         <section aria-labelledby="tests-title">
@@ -74,11 +75,12 @@ function home() {
         <aside class="edition-resources" aria-labelledby="resources-title">
           <h2 id="resources-title">Study materials</h2>
           <div class="resources">
+            ${edition.importedPdf?'<button id="add-local-pdf">Choose PDF</button><p id="local-pdf-status" class="note" role="status"></p>':''}
             <button id="browse-transcript">Listening transcripts</button>
             <button id="browse-keys">Answer keys</button>
-            <a class="nav-control" href="${pdf} - 题目.pdf" target="_blank">Questions PDF <span aria-hidden="true">↗</span></a>
+            ${edition.importedPdf?'<button id="browse-samples">Writing samples</button><a class="nav-control" href="https://www.cambridgeone.org/" target="_blank" rel="noopener">Cambridge One audio <span aria-hidden="true">↗</span></a>':`<a class="nav-control" href="${pdf} - 题目.pdf" target="_blank">Questions PDF <span aria-hidden="true">↗</span></a>
             <a class="nav-control" href="${pdf} - 听力原文.pdf" target="_blank">Transcript PDF <span aria-hidden="true">↗</span></a>
-            <a class="nav-control" href="${pdf} - 答案.pdf" target="_blank">Answer key PDF <span aria-hidden="true">↗</span></a>
+            <a class="nav-control" href="${pdf} - 答案.pdf" target="_blank">Answer key PDF <span aria-hidden="true">↗</span></a>`}
           </div>
         </aside>
       </div>
@@ -86,6 +88,10 @@ function home() {
     </main>`;
   document.querySelector('#browse-transcript').onclick=()=>chooseResource('transcript');
   document.querySelector('#browse-keys').onclick=()=>chooseResource('answers');
+  if(edition.importedPdf){
+    editionMedia.bindHome();
+    document.querySelector('#browse-samples').onclick=()=>chooseResource('samples');
+  }
   app.querySelectorAll('[data-open]').forEach(button=>button.onclick=()=>{
     const skill=button.dataset.open;
     const n=Number(button.dataset.test);
@@ -108,7 +114,8 @@ function show(title,body,actions) {
 }
 function closeDialog(){dialog.close()}
 function chooseResource(type){
-  const label=type==='transcript'?'Listening transcripts':'Answer key';
+  if(edition.importedPdf&&!editionMedia.hasPdf())return editionMedia.requirePdf(()=>chooseResource(type));
+  const label={transcript:'Listening transcripts',samples:'Writing samples',answers:'Answer key'}[type];
   show(label,'<div class="resource-text">'+tests.map((_,i)=>'<button data-book="'+(i+1)+'">Test '+(i+1)+'</button>').join('')+'</div>',[['Close',closeDialog]]);
   dialog.querySelectorAll('[data-book]').forEach(button=>button.onclick=()=>showResource(type,Number(button.dataset.book)));
 }
@@ -123,6 +130,7 @@ function showResource(type,test){
 }
 
 function open(n,skill,inFull=false) {
+  if(edition.importedPdf&&!editionMedia.hasPdf())return editionMedia.requirePdf(()=>open(n,skill,inFull));
   testNumber=n; section=skill; full=inFull;
   const key=getKey(n,skill,inFull);
   attempt=attempts[key];
@@ -174,8 +182,8 @@ function partFor(q) {
   if(section==='reading') return data().reading.findIndex(([,pages])=>pages.some(([,start,end])=>q>=start && q<=end));
   return q-1;
 }
-function scan(page) {
-  return renderPaperPage(page);
+function scan(page,question=false) {
+  return edition.importedPdf?editionMedia.paper(page,question):renderPaperPage(page);
 }
 function renderExam() {
   const afterTimeout=attempt.submitted;
@@ -202,7 +210,10 @@ function renderExam() {
     zoom = zoom===1 ? 1.25 : zoom===1.25 ? 1.55 : 1;
     applyZoom();
   };
-  installTextHighlightControl();
+  if(edition.importedPdf){
+    document.querySelector('#mark').hidden=true;
+    document.querySelector('#undo').hidden=true;
+  }else installTextHighlightControl();
   document.querySelector('#note').onclick=()=>{
     const q=current;
     show('Notes · '+(isObjective()?'Question ':section==='writing'?'Task ':'Practice ')+q,
@@ -283,12 +294,12 @@ function renderPart(part) {
     const ends=listeningPageEnds[testNumber-1][part];
     const scans=data().listening[part].map((page,i)=>{
       const first=i===0?part*10+1:ends[i-1]+1;
-      return '<section class="question-page" data-first="'+first+'" data-last="'+ends[i]+'">'+scan(page)+'</section>';
+      return '<section class="question-page" data-first="'+first+'" data-last="'+ends[i]+'">'+scan(page,true)+'</section>';
     }).join('');
     work.innerHTML='<div class="pane" id="questionScans"><h2 class="pane-title">Questions '+(part*10+1)+'–'+(part*10+10)+'</h2>'+scans+'</div><div class="pane" id="answerPane">'+answerFields(part*10+1,part*10+10,'Your answers')+'</div>';
   } else if(section==='reading') {
     const [,items]=data().reading[part];
-    work.innerHTML='<div class="pane passage-pane"><h2 class="pane-title">Reading Passage '+(part+1)+'</h2>'+renderReadingPassage(part)+'</div><div class="reading-right"><div class="pane" id="questionScans"><h2 class="pane-title">Questions '+items[0][1]+'–'+items.at(-1)[2]+'</h2>'+items.map(([page,first,last])=>'<section class="question-page" data-first="'+first+'" data-last="'+last+'">'+scan(page)+'</section>').join('')+'</div><div class="pane" id="answerPane">'+answerFields(items[0][1],items.at(-1)[2])+'</div></div>';
+    work.innerHTML='<div class="pane passage-pane"><h2 class="pane-title">Reading Passage '+(part+1)+'</h2>'+renderReadingPassage(part)+'</div><div class="reading-right"><div class="pane" id="questionScans"><h2 class="pane-title">Questions '+items[0][1]+'–'+items.at(-1)[2]+'</h2>'+items.map(([page,first,last])=>'<section class="question-page" data-first="'+first+'" data-last="'+last+'">'+scan(page,true)+'</section>').join('')+'</div><div class="pane" id="answerPane">'+answerFields(items[0][1],items.at(-1)[2])+'</div></div>';
   } else if(section==='writing') {
     work.innerHTML='<div class="pane">'+scan(data().writing[part])+'</div><div class="pane"><div class="writing-box"><label for="essay">Your answer</label><textarea id="essay" spellcheck="false" placeholder="Type your response here…">'+esc(attempt.answers[current])+'</textarea><div id="words" class="word-count"></div></div></div>';
     const essay=document.querySelector('#essay');
@@ -517,13 +528,14 @@ function review(hideAnswers=false) {
   const keyPage=edition.keyStart+(n-1)*2+(skill==='reading'?1:0);
   let content='';
   if(!hideAnswers&&objective){
+    const explainReading=skill==='reading'&&!edition.importedPdf;
     const answers=range(1,40).map(q=>{
       const v=a.answers[q]||'';
       const expected=answerInfo(skill,q);
       const ok=grade(skill,q,v);
-      return '<tr><td>'+q+'</td><td class="'+(v?(ok===true?'correct':ok===false?'incorrect':''):'')+'">'+(esc(v)||'—')+'</td>'+(scored?'<td>'+esc(expected?.replaceAll('|',' / '))+'</td>':'')+(skill==='reading'?'<td><button type="button" data-reading-explain="'+q+'" aria-label="Explain question '+q+'">Explanation</button></td>':'')+'</tr>';
+      return '<tr><td>'+q+'</td><td class="'+(v?(ok===true?'correct':ok===false?'incorrect':''):'')+'">'+(esc(v)||'—')+'</td>'+(scored?'<td>'+esc(expected?.replaceAll('|',' / '))+'</td>':'')+(explainReading?'<td><button type="button" data-reading-explain="'+q+'" aria-label="Explain question '+q+'">Explanation</button></td>':'')+'</tr>';
     }).join('');
-    content='<div class="review-grid"><section class="review-col"><h2>My answers</h2><table><thead><tr><th>Question</th><th>Your answer</th>'+(scored?'<th>Answer key</th>':'')+(skill==='reading'?'<th>Explanation</th>':'')+'</tr></thead><tbody>'+answers+'</tbody></table></section><section class="review-col"><h2>Answer key from the book</h2>'+scan(keyPage)+(skill==='listening'?'<button id="show-transcript">View the listening transcript</button>':'')+'</section></div>';
+    content='<div class="review-grid"><section class="review-col"><h2>My answers</h2><table><thead><tr><th>Question</th><th>Your answer</th>'+(scored?'<th>Answer key</th>':'')+(explainReading?'<th>Explanation</th>':'')+'</tr></thead><tbody>'+answers+'</tbody></table></section><section class="review-col"><h2>Answer key from the book</h2>'+scan(keyPage)+(skill==='listening'?'<button id="show-transcript">View the listening transcript</button>':'')+'</section></div>';
   } else if(skill==='writing') {
     content='<div class="review-grid">'+[1,2].map(q=>'<section class="review-col"><h2>Task '+q+' · '+countWords(a.answers[q])+' words</h2>'+studyButtons('writing',q)+scan(data().writing[q-1])+'<pre>'+esc(a.answers[q]||'(No answer)')+'</pre></section>').join('')+'</div>';
   } else if(skill==='speaking'){content=studyButtons('speaking')+scan(data().speaking)}
@@ -532,7 +544,7 @@ function review(hideAnswers=false) {
   const nextSkill=hideAnswers?sequence[sequence.indexOf(skill)+1]:null;
   const returnButton=allowReturn?'<button class="primary" id="return-at-zero">Return to questions (00:00)</button>':'';
   const nextButton=allowReturn&&nextSkill?'<button id="next-exam-section">Start '+skillLabel[nextSkill]+'</button>':'';
-  const translations=skill==='reading' && !hideAnswers
+  const translations=skill==='reading' && !hideAnswers && !edition.importedPdf
     ? data().reading.map((_,part)=>'<button type="button" data-study="reading-translation" data-passage="'+part+'">Passage '+(part+1)+' Full translation</button>').join('')
     : '';
   app.innerHTML='<header class="top">'+brand+'<small>Test '+n+' · '+names[skill]+'</small></header><main class="review"><button id="back">← All tests</button><h1>'+title+'</h1><p>'+stat+'</p><div class="review-tabs">'+returnButton+nextButton+'<button id="again">Retry section</button>'+translations+'</div>'+content+'</main>';

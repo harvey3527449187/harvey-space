@@ -6,6 +6,7 @@
     reading: "harvey-english-reader-v1",
     ielts17: "cambridge-ielts17-attempts-v1",
     ielts18: "cambridge-ielts18-attempts-v1",
+    ielts19: "cambridge-ielts19-attempts-v1",
     vocabulary: "vocab_srs_v2",
   };
   const connectionKey = "harvey.cloud.connection.v1";

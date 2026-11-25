@@ -52,6 +52,8 @@ h2 { margin: 0; font: 660 clamp(1.3rem, 3vw, 1.7rem)/1.2 var(--ui); letter-spaci
 .cover { display: grid; align-items: center; justify-items: center; padding: 1.2rem; }
 .cover-17 { background: #f2e8e5; }
 .cover-18 { background: #eae2f3; }
+.cover-19 { background: #f3e3e8; color: #87354a; }
+.cover-19 span { font: 750 clamp(2.6rem, 7vw, 5.2rem)/1 var(--ui); letter-spacing: -.075em; }
 .cover img { width: min(100%, 144px); height: auto; max-height: 195px; object-fit: contain; border-radius: 3px; box-shadow: 3px 6px 12px #2c18482e; }
 .book-body { display: flex; flex-direction: column; align-items: flex-start; padding: clamp(1rem, 2.3vw, 1.65rem); }
 h3 { margin: 0; font: 660 clamp(1.15rem, 2.3vw, 2.02rem)/1.15 var(--ui); letter-spacing: -.038em; }
