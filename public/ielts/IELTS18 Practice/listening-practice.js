@@ -15,9 +15,7 @@ function listeningActions() {
     '<div id="practice-player" class="practice-player"' + (full ? ' hidden' : '') + '>' +
     (full ? '' : listeningSkipButtons()) + '</div>' +
     '<div class="practice-links"><button id="part-transcript" type="button">Transcript</button>' +
-    (edition.importedPdf?'<button id="online-part-audio" type="button">Play online audio</button>'+
-      '<button id="add-part-audio" type="button">Choose audio</button>'+
-      '<a class="nav-control nav-control--quiet" href="'+editionMedia.onlineSource(testNumber)+'" target="_blank" rel="noopener">Audio source ↗</a>':
+    (edition.importedPdf?'<a class="nav-control nav-control--quiet" href="'+editionMedia.onlineSource(testNumber)+'" target="_blank" rel="noopener">Audio source ↗</a>':
       '<button id="part-translation" type="button">Chinese translation</button>') +
     '<button id="part-check" type="button">Check answers</button></div></div>';
 }
@@ -36,16 +34,7 @@ function installListeningActions() {
   document.querySelector('#part-transcript').onclick=()=>edition.importedPdf
     ? showResource('transcript',testNumber)
     : showPartTranscript(pageIndex,false);
-  if(edition.importedPdf){
-    document.querySelector('#online-part-audio').onclick=()=>loadPracticePart(pageIndex,undefined,false,true);
-    document.querySelector('#add-part-audio').onclick=()=>{
-      const part=pageIndex;
-      const activeAttempt=attempt;
-      editionMedia.chooseAudio(testNumber,part,(stored,whole)=>{
-        if(attempt===activeAttempt && pageIndex===part)loadPracticePart(part,stored?undefined:'Audio available for this visit.',whole);
-      });
-    };
-  }else document.querySelector('#part-translation').onclick=()=>showPartTranscript(pageIndex,true);
+  if(!edition.importedPdf)document.querySelector('#part-translation').onclick=()=>showPartTranscript(pageIndex,true);
   document.querySelector('#part-check').onclick=()=>showPartAnswers(pageIndex);
 }
 
@@ -122,15 +111,14 @@ function selectListeningPart(part) {
   if(!full)loadPracticePart(part);
 }
 
-function loadPracticePart(part,localNotice,preferWhole=false,online=false) {
+function loadPracticePart(part) {
   if(edition.importedPdf)audio.ontimeupdate?.();
   stopAudio();
   audio.controls=true;
   audio.hidden=false;
   audio.volume=volume;
   const activeAttempt=attempt;
-  let whole=false;
-  let position=activeAttempt.partPositions?.[part]||0;
+  const position=activeAttempt.partPositions?.[part]||0;
   let loaded=false;
   audio.onloadedmetadata=()=>{
     if(position>0 && position<audio.duration)audio.currentTime=position;
@@ -138,42 +126,19 @@ function loadPracticePart(part,localNotice,preferWhole=false,online=false) {
   };
   audio.ontimeupdate=()=>{
     if(loaded && attempt===activeAttempt){
-      if(whole)attempt.localFullPosition=audio.currentTime;
-      else (attempt.partPositions??={})[part]=audio.currentTime;
+      (attempt.partPositions??={})[part]=audio.currentTime;
       put();
     }
   };
   audio.onended=()=>{
-    if(whole)activeAttempt.localFullPosition=0;
-    else (activeAttempt.partPositions??={})[part]=0;
+    (activeAttempt.partPositions??={})[part]=0;
     setSound('Part '+(part+1)+' · Finished');
     put();
   };
-  audio.onerror=()=>setSound('Could not load the recording',!edition.importedPdf);
+  audio.onerror=()=>setSound('Could not load the recording',true);
   audio.onplay=()=>setSound('Section practice');
-  if(edition.importedPdf){
-    if(online){
-      audio.src=editionMedia.onlineRecording(testNumber,part);
-      setSound('Online audio · IELTS Training Online');
-      syncListeningControls();
-      startAudio();
-      return;
-    }
-    const generation=audioGeneration;
-    const isCurrent=()=>generation===audioGeneration && attempt===activeAttempt && pageIndex===part;
-    setSound('Looking for saved audio…');
-    editionMedia.loadAudio(testNumber,part,isCurrent,preferWhole).then(media=>{
-      if(!isCurrent())return;
-      whole=media.whole;
-      if(whole)position=activeAttempt.localFullPosition||0;
-      if(media.src)audio.src=media.src;
-      const title=(whole?'Full test audio · ':'')+editionMedia.audioName();
-      setSound(media.src?(localNotice||title):'Play online or choose a local audio file.');
-      syncListeningControls();
-    });
-    return;
-  }
-  audio.src='assets/Test '+testNumber+' Part '+(part+1)+'.mp3';
+  audio.src=edition.importedPdf?editionMedia.onlineRecording(testNumber,part):
+    'assets/Test '+testNumber+' Part '+(part+1)+'.mp3';
   setSound('Section practice');
   syncListeningControls();
 }

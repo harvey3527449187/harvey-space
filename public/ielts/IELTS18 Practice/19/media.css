@@ -1,6 +1,3 @@
-.local-media-setup{display:grid;gap:10px;justify-items:start}
-.local-media-setup input{max-width:100%}
-.local-media-status{color:var(--muted);overflow-wrap:anywhere}
 .local-paper{overflow:clip}
 .local-paper canvas{width:100%;height:auto;display:block}
 .local-paper-status{position:absolute;inset:0;display:grid;place-content:center;padding:14px;text-align:center;color:var(--muted)}

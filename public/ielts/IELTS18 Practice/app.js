@@ -62,7 +62,7 @@ function home() {
       <header class="edition-heading">
         <p class="edition-kicker">IELTS Academic</p>
         <h1>Cambridge IELTS <span>${edition.number}</span></h1>
-        <p>${edition.importedPdf?'Practise Listening, Reading, Writing and Speaking with your PDF.':'Practise a single skill or take Listening, Reading and Writing in sequence.'}</p>
+        <p>${edition.importedPdf?'Practise Listening, Reading, Writing and Speaking.':'Practise a single skill or take Listening, Reading and Writing in sequence.'}</p>
       </header>
       <div class="edition-layout">
         <section aria-labelledby="tests-title">
@@ -75,7 +75,6 @@ function home() {
         <aside class="edition-resources" aria-labelledby="resources-title">
           <h2 id="resources-title">Study materials</h2>
           <div class="resources">
-            ${edition.importedPdf?'<button id="add-local-pdf">Choose PDF</button><p id="local-pdf-status" class="note" role="status"></p>':''}
             <button id="browse-transcript">Listening transcripts</button>
             <button id="browse-keys">Answer keys</button>
             ${edition.importedPdf?'<button id="browse-samples">Writing samples</button><a class="nav-control" href="https://www.cambridgeone.org/" target="_blank" rel="noopener">Cambridge One audio <span aria-hidden="true">↗</span></a>':`<a class="nav-control" href="${pdf} - 题目.pdf" target="_blank">Questions PDF <span aria-hidden="true">↗</span></a>
@@ -89,7 +88,6 @@ function home() {
   document.querySelector('#browse-transcript').onclick=()=>chooseResource('transcript');
   document.querySelector('#browse-keys').onclick=()=>chooseResource('answers');
   if(edition.importedPdf){
-    editionMedia.bindHome();
     document.querySelector('#browse-samples').onclick=()=>chooseResource('samples');
   }
   app.querySelectorAll('[data-open]').forEach(button=>button.onclick=()=>{
@@ -114,7 +112,6 @@ function show(title,body,actions) {
 }
 function closeDialog(){dialog.close()}
 function chooseResource(type){
-  if(edition.importedPdf&&!editionMedia.hasPdf())return editionMedia.requirePdf(()=>chooseResource(type));
   const label={transcript:'Listening transcripts',samples:'Writing samples',answers:'Answer key'}[type];
   show(label,'<div class="resource-text">'+tests.map((_,i)=>'<button data-book="'+(i+1)+'">Test '+(i+1)+'</button>').join('')+'</div>',[['Close',closeDialog]]);
   dialog.querySelectorAll('[data-book]').forEach(button=>button.onclick=()=>showResource(type,Number(button.dataset.book)));
@@ -130,7 +127,6 @@ function showResource(type,test){
 }
 
 function open(n,skill,inFull=false) {
-  if(edition.importedPdf&&!editionMedia.hasPdf())return editionMedia.requirePdf(()=>open(n,skill,inFull));
   testNumber=n; section=skill; full=inFull;
   const key=getKey(n,skill,inFull);
   attempt=attempts[key];
