@@ -226,21 +226,24 @@ function renderExam() {
 function applyZoom(){
   const work=document.querySelector('#work');
   const tabletDefault=section==='reading' && tabletDevice && zoom===1;
+  const passageZoom=tabletDefault ? 0.8 : zoom;
   const questionZoom=tabletDefault ? 1.25 : zoom;
   const passagePane=work.querySelector('.passage-pane');
   work.classList.toggle('tablet-default-zoom',tabletDefault);
   work.style.setProperty('--zoom',questionZoom);
   if(passagePane){
-    if(tabletDefault) passagePane.style.setProperty('--zoom',0.75);
+    if(tabletDefault) passagePane.style.setProperty('--zoom',passageZoom);
     else passagePane.style.removeProperty('--zoom');
   }
   work.querySelectorAll('.scan').forEach(card=>{
-    const scale=tabletDefault && passagePane?.contains(card) ? 0.75 : questionZoom;
+    const scale=passagePane?.contains(card) ? passageZoom : questionZoom;
     card.style.width=scale===1 ? '' : scale*100+'%';
   });
   const button=document.querySelector('#zoom');
-  button.textContent=tabletDefault ? '75% / 125%' : zoom===1 ? 'Zoom' : Math.round(zoom*100)+'%';
-  button.title=tabletDefault ? 'Passage 75% · Questions 125%' : 'Zoom scanned pages';
+  const passagePercent=Math.round(passageZoom*100)+'%';
+  const questionPercent=Math.round(questionZoom*100)+'%';
+  button.textContent=tabletDefault ? passagePercent+' / '+questionPercent : zoom===1 ? 'Zoom' : questionPercent;
+  button.title=tabletDefault ? 'Passage '+passagePercent+' · Questions '+questionPercent : 'Zoom scanned pages';
 }
 function renderGroup(part) {
   const group=document.querySelector('#group');

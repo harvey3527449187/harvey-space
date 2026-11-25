@@ -90,14 +90,21 @@
 .transcript-study > button{display:block;margin:0 0 .65rem auto}
 .transcript-study .reference-layout.has-notes{grid-template-columns:1fr}
 .writing-box textarea{font-size:1rem;line-height:1.65}
-.tablet-reading .reading-right #answerPane{max-height:25dvh}
-@media(min-width:761px){
-  .tablet-reading .workspace.reading{grid-template-columns:minmax(0,42fr) minmax(0,58fr)}
+.tablet-reading .reading-right #answerPane{max-height:18dvh}
+@media(min-width:701px){
+  .tablet-reading .workspace.reading{grid-template-columns:repeat(2,minmax(0,1fr))}
   .tablet-reading .workspace.reading .pane{padding-inline:12px}
+  .tablet-reading .workspace.reading #questionScans{padding-inline:8px}
+  .tablet-reading .reading-right{grid-template-rows:minmax(0,1fr) fit-content(25%)}
+  .tablet-reading .reading-right #answerPane{max-height:none}
   .tablet-default-zoom{container-type:inline-size}
-  /* Scale from the regular question column so the wider tablet pane can fit the whole page. */
+  /* Trim only the outer paper margins to fit the enlarged questions in an equal column. */
+  .tablet-default-zoom .reading-right .question-page{overflow:clip}
   .tablet-default-zoom .reading-right .question-paper{
-    max-width:min(100%,calc((100cqw / 2.22 - 37px) * var(--zoom)),calc(835px * var(--zoom)));
+    max-width:min(calc(100% / .92),calc((100cqw / 2.22 - 37px) * var(--zoom)),calc(835px * var(--zoom)));
+    inset-inline-start:50%;
+    transform:translateX(-50%);
+    margin-inline:0;
   }
 }
 @media(max-width:700px){
