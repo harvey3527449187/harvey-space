@@ -10,11 +10,11 @@
       .replace(/^[^a-z]+|[^a-z]+$/gi, '').toLowerCase();
   }
 
-  async function readPaper(edition) {
-    const path = (edition === 18 ? '' : `${edition}/`) + 'paper-data.js';
+  async function readData(edition, file, variable) {
+    const path = (edition === 18 ? '' : `${edition}/`) + file;
     const response = await fetch(new URL(path, paperRoot));
     if (!response.ok) throw new Error(`Could not load Cambridge IELTS ${edition}`);
-    const data = (await response.text()).trim().match(/^const paperPages\s*=\s*(\{[\s\S]*\});$/);
+    const data = (await response.text()).trim().match(new RegExp(`^const ${variable}\\s*=\\s*([^\\r\\n]+);`));
     if (!data) throw new Error(`Invalid Cambridge IELTS ${edition} paper data`);
     return JSON.parse(data[1]);
   }
@@ -23,7 +23,7 @@
     const items = [];
     let skipped = 0;
     for (const [key, attempt] of Object.entries(archive)) {
-      const match = /^(\d+)-reading(?:-mock)?$/.exec(key);
+      const match = /^(\d+)-(reading|listening)(?:-mock)?$/.exec(key);
       if (!match) continue;
       const batches = new Map();
       for (const [page, marks] of Object.entries(attempt?.textMarks || {})) {
@@ -49,7 +49,35 @@
           continue;
         }
         const example = marks.map(({line}) => line.trim()).join(' ').replace(/\s+/g, ' ');
-        items.push({word, example, source: `Cambridge IELTS ${edition} · Test ${match[1]} · Reading`});
+        const skill = match[2] === 'reading' ? 'Reading' : 'Listening · Questions';
+        items.push({word, example, source: `Cambridge IELTS ${edition} · Test ${match[1]} · ${skill}`});
+      }
+    }
+    return {items, skipped};
+  }
+
+  function collectTranscriptMarks(attempts, transcripts, edition) {
+    const items = [];
+    let skipped = 0;
+    for (const [key, attempt] of attempts) {
+      for (const [part, lines] of Object.entries(attempt.transcriptMarks || {})) {
+        const partIndex = Number(part);
+        const test = Number(key.split('-')[0]);
+        if (!Number.isInteger(partIndex) || Math.floor(partIndex / 4) + 1 !== test) continue;
+        for (const [line, marks] of Object.entries(lines || {})) {
+          const example = transcripts[partIndex]?.[line]?.trim();
+          if (!Array.isArray(marks)) continue;
+          for (const mark of marks) {
+            const {from, to} = mark || {};
+            const word = example && Number.isInteger(from) && Number.isInteger(to) && from >= 0 && to > from && to <= example.length
+              ? term(example.slice(from, to)) : '';
+            if (!/^[a-z]+(?:[-'][a-z]+)*(?: [a-z]+(?:[-'][a-z]+)*){0,11}$/.test(word)) {
+              skipped++;
+              continue;
+            }
+            items.push({word, example, source: `Cambridge IELTS ${edition} · Test ${test} · Listening Part ${partIndex % 4 + 1}`});
+          }
+        }
       }
     }
     return {items, skipped};
@@ -59,14 +87,22 @@
     const results = await Promise.allSettled(editions.map(async (edition) => {
       const archive = JSON.parse(storage.getItem(`cambridge-ielts${edition}-attempts-v1`) || '{}') || {};
       const hasMarks = Object.entries(archive).some(([key, attempt]) =>
-        /^\d+-reading(?:-mock)?$/.test(key) &&
+        /^\d+-(?:reading|listening)(?:-mock)?$/.test(key) &&
         Object.values(attempt?.textMarks || {}).some((marks) => Array.isArray(marks) && marks.length));
-      return hasMarks ? collectMarks(archive, await readPaper(edition), edition) : {items: [], skipped: 0};
+      const listening = Object.entries(archive).filter(([key, attempt]) =>
+        /^\d+-listening(?:-mock)?$/.test(key) && Object.keys(attempt?.transcriptMarks || {}).length);
+      return Promise.allSettled([
+        hasMarks ? readData(edition, 'paper-data.js', 'paperPages').then(paper => collectMarks(archive, paper, edition)) : null,
+        listening.length ? readData(edition, 'listening-content.js', 'listeningTranscripts')
+          .then(transcripts => collectTranscriptMarks(listening, transcripts, edition)) : null,
+      ]);
     }));
+    const parts = results.flatMap(result => result.value || []);
     return {
-      items: results.flatMap(result => result.value?.items || []),
-      skipped: results.reduce((total, result) => total + (result.value?.skipped || 0), 0),
-      failed: editions.filter((_, index) => results[index].status === 'rejected'),
+      items: parts.flatMap(result => result.value?.items || []),
+      skipped: parts.reduce((total, result) => total + (result.value?.skipped || 0), 0),
+      failed: editions.filter((_, index) => results[index].status === 'rejected' ||
+        results[index].value.some(part => part.status === 'rejected')),
     };
   }
 

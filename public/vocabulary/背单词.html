@@ -41,7 +41,7 @@
         </div>
         <div class="vocab-scope">
           <label><input type="checkbox" id="includePhrases" checked> Include phrases</label>
-          <button type="button" class="btn gray" id="importIelts" disabled>Import IELTS reading highlights</button>
+          <button type="button" class="btn gray" id="importIelts" disabled>Import IELTS highlights</button>
           <span id="ieltsImportStatus" role="status"></span>
         </div>
         <div id="studyView"></div>
@@ -120,8 +120,7 @@
         <section class="settings-card">
           <h2 class="card-title">Study preferences</h2>
           <div class="field">
-            <label for="newPerDay">Daily new-word limit</label>
-            <input type="number" id="newPerDay" min="1" max="1000" value="100">
+            <p>Daily study: up to 200 items. Due reviews come first, followed by new items.</p>
           </div>
           <div class="field">
             <label for="autoEnrich"><input type="checkbox" id="autoEnrich" checked> Look up missing details after import</label>
@@ -379,19 +378,18 @@
   function todayStr(){ var d=new Date(); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
   function fmtDate(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
   function addDays(dateStr, n){ var d=new Date(dateStr+"T00:00:00"); d.setDate(d.getDate()+n); return fmtDate(d); }
-  function daysBetween(fromStr, toStr){
-    return Math.round((new Date(toStr+"T00:00:00") - new Date(fromStr+"T00:00:00")) / 86400000);
-  }
 
   /* ============ 状态 ============ */
   var state = null;
   var mode = "recall";
   var includePhrases = true;
+  var dailyLimit = 200;
+  var dailyPlanKey = "vocab_daily_plan_v1";
+  var studyDate;
+  var studyTarget = 0;
   var queue = [], qIndex = 0;
   var recallDeck = [];
   var retryQueue = [];
-  var studyTotal = 0;
-  var session = {again:0, hard:0, good:0};
   var phoneticRepairKeys = [];
 
   function defaultWord(def,example){
@@ -400,12 +398,11 @@
             exampleSource:example?"saved":"", updatedAt:Date.now()};
   }
   function freshState(){
-    return { words:{}, settings:{ newPerDay:20, autoEnrich:true }, learned:0, activity:{} };
+    return { words:{}, settings:{ autoEnrich:true }, learned:0, activity:{} };
   }
   function migrateState(){
     var changed = false;
     state.settings = state.settings || {};
-    if(!state.settings.newPerDay) state.settings.newPerDay = 20;
     if(typeof state.settings.autoEnrich !== "boolean") state.settings.autoEnrich = true;
     state.activity = state.activity || {};
     var seedDefs={};
@@ -515,28 +512,38 @@
   }
 
   var pendingHighlightImport = false;
+  var highlightStatusTimer;
   async function importIeltsHighlights(automatic){
     var btn = $("importIelts"), status = $("ieltsImportStatus");
+    var showResult = !automatic;
     if(!window.IeltsVocabulary) return;
     if(btn.disabled){ pendingHighlightImport = true; return; }
     btn.disabled = true;
-    if(!automatic) status.textContent = "Reading saved highlights…";
+    if(!automatic){
+      clearTimeout(highlightStatusTimer);
+      status.textContent = "Loading saved IELTS highlights…";
+    }
     try {
       var result = await window.IeltsVocabulary.savedHighlights(localStorage);
       var items = Array.from(new Map(result.items.map(function(item){ return [item.word,item]; })).values());
       var added = addIeltsEntries(items);
       if(automatic && !added.length){ renderLibrary($("search").value); return; }
+      showResult = true;
       status.textContent = items.length
         ? "Added " + added.filter(function(key){ return !isPhrase(key); }).length + " words and " + added.filter(isPhrase).length + " phrases. " + (items.length-added.length) + " already in your library."
-        : result.skipped || result.failed.length ? "No highlights could be imported." : "No saved reading highlights found in this browser. Open the browser where you highlighted or sync with Harvey Cloud.";
+        : result.skipped || result.failed.length ? "No highlights could be imported." : "No saved listening or reading highlights found. Open the browser where you highlighted or sync with Harvey Cloud.";
       if(result.skipped) status.textContent += " Skipped " + result.skipped + " unsupported selections.";
       if(result.failed.length) status.textContent += " Could not read IELTS " + result.failed.join(", ") + ". Try again.";
       if(added.length) startStudy();
       renderLibrary($("search").value);
       if(state.settings.autoEnrich && added.length) enrichWords(added);
     } catch(e){
-      if(!automatic) status.textContent = "Could not import reading highlights. Try again.";
+      if(!automatic) status.textContent = "Could not import IELTS highlights. Try again.";
     } finally {
+      if(showResult && status.textContent){
+        clearTimeout(highlightStatusTimer);
+        highlightStatusTimer = setTimeout(function(){ status.textContent = ""; },5000);
+      }
       btn.disabled = false;
       if(pendingHighlightImport){ pendingHighlightImport = false; importIeltsHighlights(true); }
     }
@@ -945,14 +952,17 @@
   /* ============ SM-2 复习 ============ */
   function review(key, grade){
     var w = state.words[key], today = todayStr();
+    var alreadyMissedToday = w.lastReview === today && w.due <= today;
     w.lastReview = today;
     w.updatedAt = Date.now();
     state.activity = state.activity || {};
     state.activity[today] = (state.activity[today]||0) + 1;
     if(grade === 0){
-      w.lapses = (w.lapses||0) + 1;
+      if(!alreadyMissedToday){
+        w.lapses = (w.lapses||0) + 1;
+        w.easiness = Math.max(1.3, w.easiness - 0.2);
+      }
       w.repetition = 0; w.interval = 0;
-      w.easiness = Math.max(1.3, w.easiness - 0.2);
       w.due = today;
     } else {
       w.repetition = (w.repetition||0) + 1;
@@ -970,39 +980,34 @@
     save();
   }
 
+  var dailyPlan;
   function buildQueue(){
     var today = todayStr();
-    var newPerDay = state.settings.newPerDay || 100;
-    var review = [], fresh = [];
-    studyKeys().forEach(function(key){
-      var w = state.words[key];
-      if(w.due <= today){
-        if(w.repetition === 0 && !w.lastReview) fresh.push(key);
-        else review.push(key);
-      }
+    var stored;
+    try { stored = tryParse(localStorage.getItem(dailyPlanKey)); } catch(e){}
+    if(stored?.date === today && Array.isArray(stored.keys)) dailyPlan = stored;
+    if(dailyPlan?.date !== today) dailyPlan = {date:today,keys:[]};
+    var words = state.words;
+    var eligible = studyKeys().filter(function(key){ return words[key].due <= today; });
+    var touched = new Set(Object.keys(words).filter(function(key){ return words[key].lastReview === today; }));
+    var saved = new Set(dailyPlan.keys);
+    var available = Math.max(0,dailyLimit-touched.size);
+    var due = eligible.filter(function(key){ return !touched.has(key) && !saved.has(key); });
+    due.sort(function(a,b){
+      var first = words[a], second = words[b];
+      var newFirst = !first.lastReview && !first.repetition;
+      var newSecond = !second.lastReview && !second.repetition;
+      return Number(newFirst)-Number(newSecond) ||
+        (newFirst ? (first.added || "").localeCompare(second.added || "") :
+          first.due.localeCompare(second.due) || (second.lapses||0)-(first.lapses||0));
     });
-    review.sort(function(a,b){
-      var oa = daysBetween(state.words[a].due, today), ob = daysBetween(state.words[b].due, today);
-      if(oa !== ob) return ob - oa;
-      return (state.words[b].lapses||0) - (state.words[a].lapses||0);
-    });
-    fresh.sort(function(a,b){ return state.words[a].added.localeCompare(state.words[b].added); });
-    return review.concat(fresh.slice(0, newPerDay));
-  }
-  function buildExtra(n){
-    var today = todayStr(), extra = [];
-    var keys = studyKeys();
-    var fresh = keys.filter(function(k){
-      var w = state.words[k]; return w.repetition === 0 && !w.lastReview;
-    }).sort(function(a,b){ return state.words[a].added.localeCompare(state.words[b].added); });
-    extra = fresh.slice(0, n);
-    if(extra.length < n){
-      var upcoming = keys.filter(function(k){
-        return state.words[k].due > today && !extra.includes(k);
-      }).sort(function(a,b){ return state.words[a].due.localeCompare(state.words[b].due); });
-      for(var i=0; i<upcoming.length && extra.length<n; i++) extra.push(upcoming[i]);
-    }
-    return extra;
+    var remaining = new Set(eligible);
+    var planned = dailyPlan.keys.filter(function(key){ return remaining.has(key) && !touched.has(key); }).slice(0,available);
+    var added = due.slice(0,available-planned.length);
+    dailyPlan.keys = dailyPlan.keys.concat(added);
+    try { localStorage.setItem(dailyPlanKey,JSON.stringify(dailyPlan)); } catch(e){}
+    var misses = eligible.filter(function(key){ return touched.has(key); });
+    return planned.concat(added,misses);
   }
 
   /* ============ 渲染 ============ */
@@ -1016,8 +1021,10 @@
   function renderDashboard(){
     var el=$("dashboard"); if(!el) return;
     var today=todayStr(), due=0, fresh=0, mastered=0;
+    var completed=completedToday();
     studyKeys().forEach(function(k){ var w=state.words[k]; if(w.repetition===0&&!w.lastReview) fresh++; else { if(w.due<=today) due++; if(w.interval>=21) mastered++; } });
-    el.innerHTML='<div class="dash-item"><b>'+due+'</b><span>Due today</span></div>'+ 
+    el.innerHTML='<div class="dash-item"><b>'+completed+' / '+studyTarget+'</b><span>Completed today</span></div>'+
+      '<div class="dash-item"><b>'+due+'</b><span>Due reviews</span></div>'+
       '<div class="dash-item"><b>'+fresh+'</b><span>New '+(includePhrases?'items':'words')+'</span></div>'+
       '<div class="dash-item"><b>'+mastered+'</b><span>Mastered</span></div>'+ 
       '<div class="dash-item"><b class="streak">'+streakDays()+'</b><span>Day streak</span></div>';
@@ -1057,41 +1064,16 @@
     renderSpellCard(v, key);
   }
 
-  function renderDone(v){
-    var total = studyTotal || queue.length;
-    var more = buildExtra(1).length > 0;
-    var statHtml = mode==="recall" ?
-      '<div class="stat"><b>'+session.good+'</b><span>Correct</span></div><div class="stat"><b>'+session.again+'</b><span>Incorrect</span></div>' :
-      '<div class="stat"><b>'+session.good+'</b><span>Remembered</span></div><div class="stat"><b>'+session.hard+'</b><span>With a hint</span></div><div class="stat"><b>'+session.again+'</b><span>Missed</span></div>';
-    v.innerHTML =
-      '<div class="done">' +
-        '<h2>Study session complete</h2>' +
-        '<div class="stats">' +
-          '<div class="stat"><b>'+total+'</b><span>Studied</span></div>' +
-          statHtml +
-        '</div>' +
-        (more ?
-          '<div class="more-box"><p>Continue with new words or review upcoming words early.</p>' +
-          '<div class="more-row">' +
-            '<button class="btn btn-more" data-more="10">Study 10</button>' +
-            '<button class="btn btn-more" data-more="20">Study 20</button>' +
-            '<button class="btn btn-more" data-more="50">Study 50</button>' +
-            '<input id="moreN" type="number" min="1" max="500" placeholder="Custom" aria-label="Number of words to study">' +
-            '<button class="btn btn-more" id="moreGo">Start</button>' +
-          '</div></div>'
-        : '<p class="note">You are caught up. Add more words in Import &amp; Settings or check back tomorrow.</p>') +
-      '</div>';
+  function completedToday(){
+    return studyKeys().filter(function(key){
+      var word = state.words[key];
+      return word.lastReview === studyDate && word.due > studyDate;
+    }).length;
+  }
 
-    var mbtns = v.querySelectorAll("[data-more]");
-    for(var i=0;i<mbtns.length;i++){
-      mbtns[i].onclick = function(){ continueStudy(parseInt(this.getAttribute("data-more"),10)); };
-    }
-    var go = $("moreGo");
-    if(go) go.onclick = function(){
-      var n = parseInt($("moreN").value, 10);
-      if(!n || n<1){ $("moreN").focus(); return; }
-      continueStudy(n);
-    };
+  function renderDone(v){
+    v.innerHTML = '<div class="done"><h2>Daily study complete</h2>' +
+      '<p>'+completedToday()+' completed today. New items and the next scheduled reviews will appear when available.</p></div>';
   }
 
   function primaryPos(def){
@@ -1258,8 +1240,8 @@
       if(card.answered||index<0||index>=choices.length) return;
       card.answered=true; card.grade=choices[index].correct?2:0; card.selected=index;
       review(key,card.grade);
-      if(card.grade===0){ session.again++; recallDeck.push({key:key,answered:false,grade:null,selected:null,choices:null}); }
-      else session.good++;
+      if(card.grade===0) recallDeck.push({key:key,answered:false,grade:null,selected:null,choices:null});
+      renderDashboard();
       paintAnswer();
       var totalEl=$("jumpWord"); if(totalEl){ totalEl.max=recallDeck.length; var label=totalEl.nextElementSibling; if(label) label.textContent='/ '+recallDeck.length; }
       var nextBtn=$("nextWord");
@@ -1366,7 +1348,7 @@
       if(!correct && !missed){
         // 第一次拼错：不显示答案，当场重拼一次；已记为“Missed”，最后集中再复习
         missed = true;
-        review(key, 0); session.again++;
+        review(key, 0);
         retryQueue.push(key);
         resetBoxes();
         input.value = "";
@@ -1378,8 +1360,8 @@
       if(correct && !missed){
         var g = usedHint ? 1 : 2;
         review(key, g);
-        if(usedHint){ session.hard++; showResult('<span style="color:var(--hard)">Correct with a hint</span>'+phInline()); }
-        else { session.good++; showResult('<span style="color:var(--good)">Correct</span>'+phInline()); }
+        if(usedHint){ showResult('<span style="color:var(--hard)">Correct with a hint</span>'+phInline()); }
+        else { showResult('<span style="color:var(--good)">Correct</span>'+phInline()); }
       } else if(correct && missed){
         showResult('<span style="color:var(--good)">Correct on the second try. This word will come up again.</span>'+phInline());
       } else {
@@ -1391,7 +1373,7 @@
       var bs = boxEls(), t = target;
       for(var i=0;i<bs.length;i++){ bs[i].textContent = t[i]; bs[i].classList.add('wrong'); }
       finish();
-      if(!missed){ review(key, 0); session.again++; retryQueue.push(key); }
+      if(!missed){ review(key, 0); retryQueue.push(key); }
       showResult('<span style="color:var(--again)">Answer: <b>'+esc(display)+'</b>'+phInline()+' '+esc(w.def||'')+'</span>');
     }
 
@@ -1416,23 +1398,6 @@
       var m = part.match(/^([a-z]+\.)\s*(.*)$/i);
       return m ? '<span class="pos">'+esc(m[1])+'</span> '+esc(m[2]) : esc(part);
     }).join('<br>');
-  }
-
-  function answer(key, grade){
-    review(key, grade);
-    if(grade===0) session.again++; else if(grade===1) session.hard++; else session.good++;
-    if(grade === 0){ queue.splice(qIndex, 1); queue.push(key); }
-    else { qIndex++; }
-    renderStudy();
-  }
-
-  function continueStudy(n){
-    var extra = buildExtra(n);
-    if(extra.length === 0){ alert("There are no more words to study."); return; }
-    queue = extra; recallDeck=queue.map(function(key){return {key:key,answered:false,grade:null,selected:null,choices:null};}); qIndex = 0;
-    retryQueue = []; studyTotal = queue.length;
-    session = {again:0, hard:0, good:0};
-    renderStudy();
   }
 
   /* ============ 词库 ============ */
@@ -1611,11 +1576,6 @@
     };
     $("clearPaste").onclick = function(){ $("pasteArea").value = ""; $("importResult").textContent = ""; };
 
-    $("newPerDay").onchange = function(){
-      var n = parseInt(this.value, 10);
-      if(n && n > 0){ state.settings.newPerDay = n; save(); }
-    };
-
     $("autoEnrich").onchange = function(){ state.settings.autoEnrich=this.checked; save(); };
     $("enrichAllBtn").onclick = function(){
       var btn=this; btn.disabled=true; btn.textContent="Looking up…";
@@ -1676,10 +1636,11 @@
   }
 
   function startStudy(){
+    studyDate = todayStr();
     queue = buildQueue(); qIndex = 0;
+    studyTarget = queue.length + completedToday();
     recallDeck=queue.map(function(key){return {key:key,answered:false,grade:null,selected:null,choices:null};});
-    retryQueue = []; studyTotal = queue.length;
-    session = {again:0, hard:0, good:0};
+    retryQueue = [];
     renderStudy();
   }
 
@@ -1703,7 +1664,6 @@
       b.classList.toggle("active", active);
       b.setAttribute("aria-pressed", String(active));
     });
-    $("newPerDay").value = state.settings.newPerDay || 100;
     $("autoEnrich").checked = state.settings.autoEnrich !== false;
     startStudy(); renderLibrary("");
     updateFolderUI();
@@ -1756,10 +1716,12 @@
     migrateState();
     addReadingPhrases();
     idbSet("state",JSON.stringify(state));
-    $("newPerDay").value=state.settings.newPerDay;
     $("autoEnrich").checked=state.settings.autoEnrich;
     startStudy();
     renderLibrary($("search").value);
+  });
+  document.addEventListener("visibilitychange",function(){
+    if(!document.hidden && state && studyDate && studyDate !== todayStr()) startStudy();
   });
   init();
   if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){

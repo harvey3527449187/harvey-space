@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "harvey-vocab-";
-const CACHE = CACHE_PREFIX + "v7";
+const CACHE = CACHE_PREFIX + "v8";
 const APP_SHELL = ["./背单词.html", "./manifest.webmanifest", "./vocabulary.css", "./ielts-vocabulary.js", "../module-nav.css", "../harvey-cloud.js"];
 
 self.addEventListener("install", event => {
