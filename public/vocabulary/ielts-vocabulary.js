@@ -7,7 +7,7 @@
   function term(text) {
     return text.replace(/\u200b/g, '').replace(/[‘’]/g, "'")
       .replace(/[‐‑–—]/g, '-').replace(/\s+/g, ' ')
-      .replace(/^[^a-z]+|[^a-z]+$/gi, '').toLowerCase();
+      .replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '').toLowerCase();
   }
 
   const verbForms = new Map();
@@ -74,10 +74,10 @@
     event example experiment explanation factory family farmer feature field figure fish floor flower food form
     function garden generation goal group habitat hand head house idea impact industry insect instance institution
     instruction invention item job journey key language layer leader leaf lesson level library limit line link list
-    location machine material member message method model month museum name nation need neighbour neighbor note number
+    location lorry machine material member message method model month museum name nation need neighbour neighbor note number
     object observation office option outcome owner paper paragraph parent participant part passage pattern person phrase
-    place plan plant policy population position practice principle problem process product project property question
-    reason region relationship report requirement researcher resource result risk road role rule sample scientist
+    pathogen pest place plan plant poacher policy population position practice predator principle problem process product project property question
+    ranger reason region relationship report requirement researcher resource result risk road role rule sample scientist
     section sentence service shape situation skill solution sound source stage step story strategy student study subject
     survey system table task teacher technology technique term test theory tool topic town tradition type university
     use value variable version view visitor vote way week word worker world year
@@ -110,10 +110,33 @@
   }
 
   const validTerm = /^[a-z]+(?:[-'][a-z]+)*(?: [a-z]+(?:[-'][a-z]+)*){0,11}$/;
+  const testOneGlosses = {
+    Reading: {
+      timber:'n. 木材',norm:'n. 常态；惯例',combustion:'n. 燃烧',boiler:'n. 锅炉',incorporate:'v. 纳入；将……并入',
+      lorry:'n. 卡车',invasive:'adj. 入侵性的（指外来物种）',foliage:'n. 植物的叶子；枝叶',
+      salvage:'n. 抢救性回收（受损或枯死树木的木材）',pest:'n. 害虫；有害生物',pathogen:'n. 病原体',
+      outbreak:'n. 暴发（指病虫害等）',retention:'n. 保留（指林地中留存的树木）',predator:'n. 捕食者；天敌',
+      resilience:'n. 恢复力（森林受到干扰后恢复的能力）',
+    },
+    'Listening Part 4': {
+      designated:'adj. 指定的；划定的',vet:'n. 兽医',ranger:'n. 公园巡护员',immobilise:'v. 使无法移动；使失去行动能力',
+      tranquiliser:'n. 镇静剂',flop:'v. 扑通一声倒下',suffocation:'n. 窒息',matriarch:'n. 雌性首领；象群中的母象首领',
+      poacher:'n. 偷猎者',
+    },
+  };
+
+  function contextualEntryGloss(word,source){
+    const match=/^Cambridge IELTS 18 · Test 1 · (Reading|Listening Part 4)$/.exec(source||'');
+    const glossary=match?testOneGlosses[match[1]]:null;
+    return glossary && Object.hasOwn(glossary,word)?glossary[word]:'';
+  }
+
   function asEntry({text,example,source,def,bilingual}) {
     const selected=term(text);
-    if(!validTerm.test(selected) && (!bilingual || !/[a-z]/.test(selected) || selected.length>1600))return null;
-    return {word:bilingual && example ? selected : baseTerm(selected),example,source,def};
+    if(!/[a-z]/i.test(selected) || /[\u3400-\u9fff]/.test(selected) || selected.length>1600)return null;
+    const word=bilingual && example || !validTerm.test(selected) ? selected : baseTerm(selected);
+    const gloss=contextualEntryGloss(word,source);
+    return {word,form:selected,example,source,def:gloss||def,definitionSource:gloss?'ielts-context':def?'ielts-bilingual':''};
   }
 
   function parseData(source,variable) {
@@ -129,12 +152,30 @@
     return response.text();
   }
 
+  function legacySelections(page,rectangles){
+    return (Array.isArray(rectangles)?rectangles:[]).flatMap(({x,y,w,h})=>{
+      if(![x,y,w,h].every(Number.isFinite)||w<=0||h<=0)return [];
+      const lines=(page?.lines||[]).flatMap(([left,top,width,height,text])=>{
+        if(!width||!height||top+height/2<y||top+height/2>y+h)return [];
+        const from=Math.max(0,(x-left)/width),to=Math.min(1,(x+w-left)/width);
+        if(to<=from)return [];
+        const words=[...text.matchAll(/[A-Za-z][A-Za-z'’-]*/g)].filter(match=>{
+          const center=(match.index+match[0].length/2)/text.length;
+          return center>=from && center<=to;
+        });
+        return words.length?[{text:words.map(match=>match[0]).join(' '),example:text.trim()}]:[];
+      });
+      return lines.length?[{text:lines.map(line=>line.text).join(' '),example:lines.map(line=>line.example).join(' ')}]:[];
+    });
+  }
+
   function collectMarks(archive, paper, edition) {
     const items = [];
     let skipped = 0;
     for (const [key, attempt] of Object.entries(archive)) {
       const match = /^(\d+)-(reading|listening)(?:-mock)?$/.exec(key);
       if (!match) continue;
+      const source='Cambridge IELTS '+edition+' · Test '+match[1]+' · '+(match[2]==='reading'?'Reading':'Listening · Questions');
       const batches = new Map();
       for (const [page, marks] of Object.entries(attempt?.textMarks || {})) {
         if (!Array.isArray(marks)) continue;
@@ -154,10 +195,18 @@
         marks.sort((a, b) => a.page - b.page || a.index - b.index);
         const selection = marks.map(({text}) => text.trim()).join(' ').replace(/-\s+(?=[a-z])/gi, '-');
         const example = marks.map(({line}) => line.trim()).join(' ').replace(/\s+/g, ' ');
-        const skill = match[2] === 'reading' ? 'Reading' : 'Listening · Questions';
-        const item=asEntry({text:selection,example,source:`Cambridge IELTS ${edition} · Test ${match[1]} · ${skill}`});
+        const item=asEntry({text:selection,example,source});
         if(item)items.push(item);
         else skipped++;
+      }
+      for(const [page,rectangles] of Object.entries(attempt?.marks||{})){
+        const selections=legacySelections(paper[page],rectangles);
+        if(Array.isArray(rectangles))skipped+=rectangles.length-selections.length;
+        for(const selection of selections){
+          const item=asEntry({...selection,source});
+          if(item)items.push(item);
+          else skipped++;
+        }
       }
     }
     return {items, skipped};
@@ -214,14 +263,18 @@
     });
   }
 
+  const translatedSelections = new Map();
   async function translatedSelection(chinese){
     if(!/[\u3400-\u9fff]/.test(chinese))return '';
+    if(translatedSelections.has(chinese))return translatedSelections.get(chinese);
     const url='https://api.mymemory.translated.net/get?q='+encodeURIComponent(chinese.slice(0,180))+'&langpair=zh-CN%7Cen';
     try{
       const response=await fetch(url,{signal:AbortSignal.timeout(4500)});
       if(!response.ok)return '';
       const data=await response.json();
-      return Number(data.responseStatus)===200 ? data.responseData?.translatedText||'' : '';
+      const translation=Number(data.responseStatus)===200 ? data.responseData?.translatedText||'' : '';
+      if(translation)translatedSelections.set(chinese,translation);
+      return translation;
     }catch{return '';}
   }
 
@@ -244,7 +297,7 @@
       const archive = JSON.parse(storage.getItem(`cambridge-ielts${edition}-attempts-v1`) || '{}') || {};
       const hasMarks = Object.entries(archive).some(([key, attempt]) =>
         /^\d+-(?:reading|listening)(?:-mock)?$/.test(key) &&
-        Object.values(attempt?.textMarks || {}).some((marks) => Array.isArray(marks) && marks.length));
+        [attempt?.textMarks,attempt?.marks].some(group=>Object.values(group||{}).some(marks=>Array.isArray(marks)&&marks.length)));
       const hasTranslationMarks=Object.entries(archive).some(([key,attempt])=>
         /^\d+-reading(?:-mock)?$/.test(key) && Object.keys(attempt?.readingTranslationMarks||{}).length);
       const reading=hasTranslationMarks ? readingTranslations(edition,archive) : Promise.resolve(null);

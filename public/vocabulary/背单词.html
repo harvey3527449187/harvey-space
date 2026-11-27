@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="vocabulary.css">
+<link rel="stylesheet" href="vocabulary.css?v=2">
 <link rel="stylesheet" href="../module-nav.css">
 <title>Vocabulary · Harvey Space</title>
 </head>
@@ -155,7 +155,7 @@
   </dialog>
 
 <script src="../harvey-cloud.js?v=2"></script>
-<script src="ielts-vocabulary.js?v=3"></script>
+<script src="ielts-vocabulary.js?v=4"></script>
 <script>
 (function(){
   "use strict";
@@ -484,26 +484,45 @@
   function studyKeys(){ return Object.keys(state.words).filter(function(key){ return (mode!=="spell" && includePhrases) || !isPhrase(key); }); }
 
   function addIeltsEntries(items){
-    var added = [], changed = false;
+    var added = [], changed = false, remapped = false;
     items.forEach(function(item){
       var word = Object.hasOwn(state.words,item.word) ? state.words[item.word] : null;
+      if(!word && item.form && item.form!==item.word && Object.hasOwn(state.words,item.form)){
+        var previous = state.words[item.form];
+        if(previous.readingSource===item.source && previous.definitionSource!=="manual"){
+          word = state.words[item.word] = previous;
+          word.word = item.word;
+          delete state.words[item.form];
+          word.updatedAt = Date.now();
+          changed = true;
+          remapped = true;
+        }
+      }
       if(!word){
         word = state.words[item.word] = defaultWord(item.def,item.example);
         word.updatedAt = 2;
         word.word = item.word;
         word.readingSource = item.source;
+        if(item.form) word.ieltsForm=item.form;
+        if(item.definitionSource) word.definitionSource=item.definitionSource;
         added.push(item.word);
         changed = true;
         return;
       }
       var updated = false;
-      if(!word.def && item.def){ word.def = item.def; updated = true; }
+      if(item.def && (!word.def || (word.readingSource===item.source && word.definitionSource!=="manual" &&
+          item.definitionSource==="ielts-context" && word.def!==item.def))){
+        word.def=item.def;
+        if(item.definitionSource)word.definitionSource=item.definitionSource;
+        updated=true;
+      }
       if(!word.example && item.example){ word.example = item.example; word.exampleSource = "saved"; updated = true; }
       if(!word.readingSource){ word.readingSource = item.source; updated = true; }
-      if(updated) changed = true;
+      if(item.form && !word.ieltsForm){word.ieltsForm=item.form; updated=true;}
+      if(updated){ word.updatedAt=Date.now(); changed = true; }
     });
     if(changed) save();
-    return added;
+    return {added:added,remapped:remapped};
   }
 
   function addReadingPhrases(){
@@ -525,13 +544,15 @@
     }
     try {
       await window.HarveyCloud?.recoverIeltsHighlights?.().catch(function(){});
-      var result = await window.IeltsVocabulary.savedHighlights(localStorage,!automatic);
+      var result = await window.IeltsVocabulary.savedHighlights(localStorage,!automatic || state.settings.autoEnrich);
       var byWord = new Map();
       result.items.forEach(function(item){
-        if(!byWord.has(item.word) || (!byWord.get(item.word).def && item.def)) byWord.set(item.word,item);
+        if(!byWord.has(item.word) || (!byWord.get(item.word).def && item.def) ||
+           (item.definitionSource==="ielts-context" && byWord.get(item.word).definitionSource!=="ielts-context")) byWord.set(item.word,item);
       });
       var items = Array.from(byWord.values());
-      var added = addIeltsEntries(items);
+      var imported = addIeltsEntries(items), added = imported.added;
+      if(imported.remapped) startStudy();
       if(automatic && !added.length){ renderLibrary($("search").value); return; }
       showResult = true;
       status.textContent = items.length
@@ -541,7 +562,9 @@
       if(result.failed.length) status.textContent += " Could not read IELTS " + result.failed.join(", ") + ". Try again.";
       if(added.length) startStudy();
       renderLibrary($("search").value);
-      if(state.settings.autoEnrich && added.length) enrichWords(added);
+      if(state.settings.autoEnrich && added.length) enrichWords(added).then(function(){
+        if(mode==="recall" && !recallDeck.length) startStudy();
+      });
     } catch(e){
       if(!automatic) status.textContent = "Could not import IELTS highlights. Try again.";
     } finally {
@@ -703,8 +726,31 @@
   }
   function needsEnrichment(key){
     var w=state.words[key];
+    if(w?.readingSource && needsIeltsGloss(w)) return true;
     if(w && isPhrase(key) && w.readingSource) return !w.def;
     return w&&(!phon(key)||!w.def||!dictionaryCache[key]);
+  }
+  function formOnlyGloss(text){
+    return /(?:plural of|past (?:tense|participle)|alternative (?:form|spelling)|inflection of|third.person singular|的复数形式|的过去式|的过去分词|另一种拼写|的变体)/i.test(text||"");
+  }
+  function needsIeltsGloss(word){
+    return !word.def || (word.definitionSource!=="manual" && word.def.split(/[｜|]/).every(formOnlyGloss));
+  }
+  function chooseIeltsSense(key,word,senses){
+    var context=(word.example||"").toLowerCase();
+    var form=word.ieltsForm||key;
+    var at=context.indexOf(form);
+    if(at<0)at=context.indexOf(key);
+    var before=at<0?"":context.slice(0,at);
+    var likelyPos=/\b(?:to|can|could|will|would|should|must|may|might)\s+$/.test(before)?"v.":
+      /\b(?:a|an|the|this|that|these|those|their|its)\s+$/.test(before)?"n.":"";
+    var tokens=new Set(context.match(/[a-z]{4,}/g)||[]);
+    var ignored=new Set(["that","with","from","some","their","which","what","when","have","were","been",key,form]);
+    return senses.filter(function(sense){return !formOnlyGloss(sense.text) && sense.pos!=="int.";}).map(function(sense,index){
+      var clues=new Set((sense.text+" "+(sense.examples||[]).join(" ")).toLowerCase().match(/[a-z]{4,}/g)||[]);
+      var matches=Array.from(clues).filter(function(token){return tokens.has(token)&&!ignored.has(token);}).length;
+      return {sense:sense,score:matches*3+(likelyPos&&sense.pos===likelyPos?4:0)-index*.12};
+    }).sort(function(a,b){return b.score-a.score;})[0]?.sense;
   }
   function translatedGloss(sense){
     var text=sense.text;
@@ -716,20 +762,27 @@
     }).catch(function(){return text;});
   }
   function lookupWord(key,refresh){
-    if(isPhrase(key) && state.words[key]?.readingSource){
-      return translatedGloss({text:key}).then(function(def){
-        if(def===key && !state.words[key]?.def) throw new Error("No phrase definition found");
-        return {phonetic:"",audio:"",def:def===key?"":def};
-      });
-    }
-    return getDictionary(key,refresh).then(function(entry){
+    var word=state.words[key];
+    var lookup=word?.readingSource ? key.replace(/ise$/,"ize").replace(/iser$/,"izer") : key;
+    return getDictionary(lookup,refresh).then(function(entry){
       var phonetic=entry.phonetic||phon(key);
       var pronunciation=phonetic?Promise.resolve(phonetic):datamuseWord(key).then(function(d){return d.phonetic;}).catch(function(){return "";});
-      var gloss=state.words[key]?.def?Promise.resolve(""):Promise.all(entry.senses.slice(0,2).map(function(sense){
+      var chosen=word?.readingSource?chooseIeltsSense(key,word,entry.senses):null;
+      var candidates=word?.readingSource
+        ? (chosen && needsIeltsGloss(word)?[chosen]:[])
+        : (word?.def?[]:entry.senses.slice(0,2));
+      var gloss=Promise.all(candidates.map(function(sense){
         return translatedGloss(sense).then(function(text){return (sense.pos?sense.pos+" ":"")+text;});
       })).then(function(parts){return parts.join("｜");});
       return Promise.all([pronunciation,gloss]).then(function(parts){
         return {phonetic:parts[0],def:parts[1],audio:entry.audio||""};
+      });
+    }).catch(function(error){
+      if(!word?.readingSource || !isPhrase(key))throw error;
+      if(!needsIeltsGloss(word))return {};
+      return translatedGloss({text:word.ieltsForm||key}).then(function(def){
+        if(!/[\u3400-\u9fff]/.test(def)||formOnlyGloss(def))throw error;
+        return {def:def};
       });
     });
   }
@@ -746,9 +799,10 @@
         return lookupWord(key,force).then(function(info){
           var w=state.words[key]; if(!w) return;
           if(w===original){
-            var next={phonetic:info.phonetic,audio:info.audio,def:w.def?"":info.def};
+            var next={phonetic:info.phonetic,audio:info.audio,def:(!w.def || (w.readingSource && needsIeltsGloss(w)))?info.def:""};
             var changed=Object.keys(next).filter(function(field){return next[field]&&next[field]!==w[field];});
             changed.forEach(function(field){w[field]=next[field];});
+            if(changed.includes("def") && w.readingSource)w.definitionSource="ielts-dictionary";
             if(changed.length) w.updatedAt=Date.now();
           }
           enrichStatus[key]="success"; ok++;
@@ -989,6 +1043,12 @@
   }
 
   var dailyPlan;
+  function reviewableKeys(){
+    return studyKeys().filter(function(key){
+      var word=state.words[key];
+      return mode!=="recall" || !word.readingSource || !needsIeltsGloss(word);
+    });
+  }
   function saveDailyPlan(){
     try { localStorage.setItem(dailyPlanKey,JSON.stringify(dailyPlan)); } catch(e){}
   }
@@ -1003,7 +1063,7 @@
     dailyPlan.earlyKeys ??= [];
     dailyPlan.earlyDone ??= [];
     var words = state.words;
-    var scope = studyKeys();
+    var scope = reviewableKeys();
     var early = new Set(dailyPlan.earlyKeys);
     var eligible = scope.filter(function(key){ return words[key].due <= today && !early.has(key); });
     var touched = new Set(Object.keys(words).filter(function(key){ return words[key].lastReview === today && !early.has(key); }));
@@ -1103,7 +1163,7 @@
   }
 
   function renderDone(v){
-    var canContinue = studyKeys().some(function(key){
+    var canContinue = reviewableKeys().some(function(key){
       return state.words[key].lastReview !== studyDate && !dailyPlan.earlyKeys.includes(key);
     });
     v.innerHTML = '<div class="done"><h2>Daily study complete</h2>' +
@@ -1140,19 +1200,31 @@
     return 1-row[b.length]/Math.max(a.length,b.length,1);
   }
   function quizChoices(key){
-    var correct=(state.words[key].def||"No definition").trim(), pos=primaryPos(correct), seen={};
-    seen[correct.replace(/\s+/g,"").toLowerCase()]=1;
-    var pool=studyKeys().filter(function(k){
-      var d=(state.words[k].def||"").trim(), id=d.replace(/\s+/g,"").toLowerCase();
-      if(k===key||!d||seen[id]) return false; seen[id]=1; return true;
+    var definition=function(w){return (w.def||"").split(/[｜|]/).find(function(part){return part.trim()&&!formOnlyGloss(part);})?.trim()||"";};
+    var meaning=function(text){return text.replace(/^[a-z]+\.\s*/i,"").replace(/[（(][^）)]*[）)]/g,"").replace(/[^\p{L}\p{N}]/gu,"").toLowerCase();};
+    var correct=definition(state.words[key])||"No definition", pos=primaryPos(correct), seen=new Set([meaning(correct)]);
+    var inChinese=/[\u3400-\u9fff]/.test(correct);
+    var pool=reviewableKeys().filter(function(k){
+      var d=definition(state.words[k]), id=meaning(d);
+      if(k===key||!id||seen.has(id)||inChinese!==/[\u3400-\u9fff]/.test(d))return false;
+      seen.add(id); return true;
     }).map(function(k){
-      var d=state.words[k].def.trim(), same=pos&&primaryPos(d)===pos;
+      var d=definition(state.words[k]), same=pos&&primaryPos(d)===pos;
       return {key:k,def:d,score:(same?0:100)+(1-wordSimilarity(key,k))*24+Math.abs(d.length-correct.length)*.4};
     }).sort(function(a,b){return a.score-b.score;});
     var samePosPool=pool.filter(function(item){return pos&&primaryPos(item.def)===pos;});
     var candidates=samePosPool.length>=3?samePosPool:pool;
     var distractors=shuffleList(candidates.slice(0,Math.min(6,candidates.length))).slice(0,3);
     return shuffleList([{key:key,def:correct,correct:true}].concat(distractors));
+  }
+
+  function ieltsQuizContext(word,key){
+    var example=word.example||"";
+    if(!word.readingSource || !example || example.toLowerCase()===key)return "";
+    var position=example.toLowerCase().indexOf(word.ieltsForm||key);
+    if(position<0)position=0;
+    var start=Math.max(0,position-85), end=Math.min(example.length,position+145);
+    return '<p class="quiz-context">'+(start?'…':'')+esc(example.slice(start,end))+(end<example.length?'…':'')+'</p>';
   }
   function recallNavHtml(){
     var total=recallDeck.length, at=qIndex+1, allDone=recallDeck.length>0&&recallDeck.every(function(x){return x.answered;});
@@ -1276,7 +1348,7 @@
       '<div class="card">'+extra+'<div class="word">'+esc(display)+'</div>'+ 
       '<div class="pronunciation">'+(phonetic?'<span class="phonetic">'+esc(phonetic)+'</span>':'')+
       '<button class="audio-btn" id="audioBtn" aria-label="Listen to pronunciation">Listen</button></div>'+
-      '<div class="quiz-options" id="quizOptions">'+options+'</div>'+ 
+      ieltsQuizContext(w,key)+'<div class="quiz-options" id="quizOptions">'+options+'</div>'+
       '<div class="quiz-feedback" id="quizFeedback" role="status"></div>'+
       '<button type="button" class="btn gray" id="familiarBtn">Very familiar</button></div>'+recallNavHtml()+studyDictionaryHtml();
     $("studyDictionary").hidden=true;
@@ -1503,7 +1575,7 @@
     var w=state.words[key]; if(!w) return;
     var next=prompt("Edit definition:",w.def||""); if(next===null) return;
     var nextExample=prompt("Edit the English example (optional):",w.example||""); if(nextExample===null) return;
-    w.def=next.trim(); w.example=nextExample.trim(); w.exampleSource=w.example?"saved":""; w.updatedAt=Date.now(); save(); renderLibrary($("search").value); renderStudy();
+    w.def=next.trim(); w.definitionSource="manual"; w.example=nextExample.trim(); w.exampleSource=w.example?"saved":""; w.updatedAt=Date.now(); save(); renderLibrary($("search").value); renderStudy();
   }
 
   /* ============ 文件夹授权 / 自动读取 ============ */

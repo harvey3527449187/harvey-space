@@ -81,6 +81,7 @@ button:disabled { cursor: default; }
 .audio-btn { display: inline-flex; justify-content: center; align-items: center; font-size: .8rem; font-weight: 650; }
 .audio-btn:hover, .icon-btn:hover { border-color: var(--accent); }
 .quiz-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; gap: .55rem; margin-top: .65rem; }
+.quiz-context { max-width: 60ch; margin: .5rem auto 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
 .quiz-option { display: flex; align-items: baseline; gap: .65rem; min-height: 51px; padding: .67rem .75rem; border: 1px solid var(--line); border-radius: 9px; background: var(--sheet); text-align: left; font-size: .91rem; }
 .quiz-option:not(:disabled):hover { border-color: var(--accent); background: var(--accent-soft); }
 .choice-key { color: var(--muted); font: 700 .76rem/1 "Cascadia Mono", Consolas, monospace; }
