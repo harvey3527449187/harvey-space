@@ -562,7 +562,10 @@
       if(result.failed.length) status.textContent += " Could not read IELTS " + result.failed.join(", ") + ". Try again.";
       if(added.length) startStudy();
       renderLibrary($("search").value);
-      if(state.settings.autoEnrich && added.length) enrichWords(added).then(function(){
+      var lookupKeys=automatic ? added : items.map(function(item){return item.word;}).filter(function(key){
+        return state.words[key] && needsIeltsGloss(state.words[key]);
+      });
+      if(state.settings.autoEnrich && lookupKeys.length) enrichWords(lookupKeys).then(function(){
         if(mode==="recall" && !recallDeck.length) startStudy();
       });
     } catch(e){
