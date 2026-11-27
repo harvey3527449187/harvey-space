@@ -2,11 +2,16 @@ begin;
 
 create table if not exists public.harvey_sync (
   user_id uuid not null references auth.users(id) on delete cascade,
-  module text not null check (module in ('workspace', 'reading', 'ielts17', 'ielts18', 'vocabulary')),
+  module text not null,
   revision integer not null default 1 check (revision > 0),
   data jsonb not null check (jsonb_typeof(data) = 'object' and octet_length(data::text) <= 5242880),
   primary key (user_id, module)
 );
+
+alter table public.harvey_sync
+  drop constraint if exists harvey_sync_module_check,
+  add constraint harvey_sync_module_check
+  check (module in ('workspace', 'reading', 'ielts17', 'ielts18', 'ielts19', 'vocabulary'));
 
 alter table public.harvey_sync enable row level security;
 revoke all on table public.harvey_sync from public, anon, authenticated;
