@@ -120,7 +120,7 @@
         <section class="settings-card">
           <h2 class="card-title">Study preferences</h2>
           <div class="field">
-            <p>Daily study: up to 200 items. Due reviews come first, followed by new items.</p>
+            <p>Start with up to 200 items. Due reviews come first, followed by new items. Choose more after you finish.</p>
           </div>
           <div class="field">
             <label for="autoEnrich"><input type="checkbox" id="autoEnrich" checked> Look up missing details after import</label>
@@ -951,6 +951,17 @@
 
   /* ============ SM-2 复习 ============ */
   function review(key, grade){
+    if(dailyPlan.earlyKeys.includes(key)){
+      if(grade > 0 && !dailyPlan.earlyDone.includes(key)){
+        dailyPlan.earlyDone.push(key);
+        saveDailyPlan();
+        var date = todayStr();
+        state.activity ??= {};
+        state.activity[date] = (state.activity[date]||0) + 1;
+        save();
+      }
+      return;
+    }
     var w = state.words[key], today = todayStr();
     var alreadyMissedToday = w.lastReview === today && w.due <= today;
     w.lastReview = today;
@@ -981,17 +992,26 @@
   }
 
   var dailyPlan;
-  function buildQueue(){
+  function saveDailyPlan(){
+    try { localStorage.setItem(dailyPlanKey,JSON.stringify(dailyPlan)); } catch(e){}
+  }
+
+  function buildQueue(extraCount){
     var today = todayStr();
     var stored;
     try { stored = tryParse(localStorage.getItem(dailyPlanKey)); } catch(e){}
     if(stored?.date === today && Array.isArray(stored.keys)) dailyPlan = stored;
     if(dailyPlan?.date !== today) dailyPlan = {date:today,keys:[]};
+    dailyPlan.extraCount ??= 0;
+    dailyPlan.earlyKeys ??= [];
+    dailyPlan.earlyDone ??= [];
     var words = state.words;
-    var eligible = studyKeys().filter(function(key){ return words[key].due <= today; });
+    var scope = studyKeys();
+    var early = new Set(dailyPlan.earlyKeys);
+    var eligible = scope.filter(function(key){ return words[key].due <= today && !early.has(key); });
     var touched = new Set(Object.keys(words).filter(function(key){ return words[key].lastReview === today; }));
     var saved = new Set(dailyPlan.keys);
-    var available = Math.max(0,dailyLimit-touched.size);
+    var available = Math.max(0,dailyLimit+dailyPlan.extraCount-touched.size);
     var due = eligible.filter(function(key){ return !touched.has(key) && !saved.has(key); });
     due.sort(function(a,b){
       var first = words[a], second = words[b];
@@ -1003,11 +1023,21 @@
     });
     var remaining = new Set(eligible);
     var planned = dailyPlan.keys.filter(function(key){ return remaining.has(key) && !touched.has(key); }).slice(0,available);
-    var added = due.slice(0,available-planned.length);
+    var openSlots = available-planned.length;
+    var added = due.slice(0,openSlots+(extraCount||0));
+    if(extraCount){
+      var extraDue = Math.max(0,added.length-openSlots);
+      dailyPlan.extraCount += extraDue;
+      var extraEarly = scope.filter(function(key){
+        return words[key].due > today && !touched.has(key) && !early.has(key);
+      }).sort(function(a,b){ return words[a].due.localeCompare(words[b].due); }).slice(0,extraCount-extraDue);
+      dailyPlan.earlyKeys = dailyPlan.earlyKeys.concat(extraEarly);
+    }
     dailyPlan.keys = dailyPlan.keys.concat(added);
-    try { localStorage.setItem(dailyPlanKey,JSON.stringify(dailyPlan)); } catch(e){}
+    saveDailyPlan();
     var misses = eligible.filter(function(key){ return touched.has(key); });
-    return planned.concat(added,misses);
+    var scopeKeys = new Set(scope), earlyDone = new Set(dailyPlan.earlyDone);
+    return planned.concat(added,misses,dailyPlan.earlyKeys.filter(function(key){ return scopeKeys.has(key) && !earlyDone.has(key); }));
   }
 
   /* ============ 渲染 ============ */
@@ -1067,13 +1097,26 @@
   function completedToday(){
     return studyKeys().filter(function(key){
       var word = state.words[key];
-      return word.lastReview === studyDate && word.due > studyDate;
+      return (word.lastReview === studyDate && word.due > studyDate) || dailyPlan.earlyDone.includes(key);
     }).length;
   }
 
   function renderDone(v){
+    var canContinue = studyKeys().some(function(key){
+      return state.words[key].lastReview !== studyDate && !dailyPlan.earlyKeys.includes(key);
+    });
     v.innerHTML = '<div class="done"><h2>Daily study complete</h2>' +
-      '<p>'+completedToday()+' completed today. New items and the next scheduled reviews will appear when available.</p></div>';
+      '<p>'+completedToday()+' completed today.</p>' +
+      (canContinue ? '<form id="morePractice" class="more-row">'+
+        '<label for="moreCount">Extra practice</label>'+
+        '<input id="moreCount" type="number" min="1" max="500" value="20" required>'+
+        '<button type="submit" class="btn">Start</button></form>' : '<p>All items in this study mode have been covered today.</p>') + '</div>';
+    var more = $("morePractice");
+    if(more) more.onsubmit = function(event){
+      event.preventDefault();
+      var count = $("moreCount").valueAsNumber;
+      if(Number.isInteger(count) && count>=1 && count<=500) startStudy(count);
+    };
   }
 
   function primaryPos(def){
@@ -1589,6 +1632,8 @@
 
     $("resetBtn").onclick = function(){
       if(confirm("Reset all study progress? This cannot be undone.")){
+        dailyPlan = null;
+        try { localStorage.removeItem(dailyPlanKey); } catch(e){}
         state = freshState(); seedFrom(SEED); save();
         addReadingPhrases();
         startStudy(); renderLibrary("");
@@ -1635,9 +1680,9 @@
     });
   }
 
-  function startStudy(){
+  function startStudy(extraCount){
     studyDate = todayStr();
-    queue = buildQueue(); qIndex = 0;
+    queue = buildQueue(extraCount); qIndex = 0;
     studyTarget = queue.length + completedToday();
     recallDeck=queue.map(function(key){return {key:key,answered:false,grade:null,selected:null,choices:null};});
     retryQueue = [];
