@@ -10,13 +10,123 @@
       .replace(/^[^a-z]+|[^a-z]+$/gi, '').toLowerCase();
   }
 
-  async function readData(edition, file, variable) {
-    const path = (edition === 18 ? '' : `${edition}/`) + file;
-    const response = await fetch(new URL(path, paperRoot));
-    if (!response.ok) throw new Error(`Could not load Cambridge IELTS ${edition}`);
-    const data = (await response.text()).trim().match(new RegExp(`^const ${variable}\\s*=\\s*([^\\r\\n]+);`));
-    if (!data) throw new Error(`Invalid Cambridge IELTS ${edition} paper data`);
+  const verbForms = new Map();
+  const regularVerbs = `
+    accept achieve act adapt add adjust adopt affect agree aim allow analyse analyze appear apply arrange
+    arrive ask assess attach attract avoid balance base behave belong benefit block boil boost borrow bother
+    break build call cancel carry cause challenge change check claim classify clean clear close collect
+    combine compare compete complete conclude confirm connect consider consist construct contain contribute
+    control convert cooperate copy correct cover create cross damage debate decide decrease define deliver
+    demand depend describe design destroy detect determine develop differ disappear discover discuss display
+    divide dress drop earn educate encourage end enhance enjoy enter establish estimate examine exchange
+    exercise exist expand expect explain explore extend face fail fall feed fill finish fit fix float focus
+    follow form found gain gather generate govern grab grow guess handle hang happen help hide highlight hope
+    identify ignore illustrate imagine improve include increase indicate influence inform insist install
+    introduce investigate involve join judge jump keep label lack land last launch lead leave limit link
+    listen live load locate look lose maintain manage mark measure mention mind miss mix move name need
+    notice observe obtain occur offer open operate order organise organize overcome own pack park participate
+    pass perform pick plan plant play point prefer prepare present prevent produce promote protect prove
+    provide publish pull push raise reach react realize realise recall recognise recognize record reduce
+    refer reflect refuse regard register relate release remain remember remove repeat replace report
+    represent require resemble resolve respond result return review rise risk roll rule run save search seek
+    seem select separate serve settle share shift show signal sign solve sound start state stay step
+    strengthen stop study submit succeed suggest support supply survive talk target teach test thank threaten
+    throw touch track train transfer transform transport travel treat try turn understand update use vary
+    visit wait walk want warn watch weigh wish wonder work worry wrap yield
+  `.trim().split(/\s+/);
+  const doubled = new Set('cancel control drop fit grab label occur plan prefer refer run step stop submit transfer travel wrap'.split(' '));
+  for (const verb of regularVerbs) {
+    const consonantY = /[^aeiou]y$/.test(verb);
+    verbForms.set(consonantY ? verb.slice(0,-1)+'ied' : verb+(verb.endsWith('e')?'d':'ed'),verb);
+    verbForms.set(consonantY ? verb.slice(0,-1)+'ies' : verb+(/(?:s|x|z|ch|sh|o)$/.test(verb)?'es':'s'),verb);
+    verbForms.set((verb.endsWith('e') && !/(?:ee|ye|oe)$/.test(verb)?verb.slice(0,-1):verb)+'ing',verb);
+    if(doubled.has(verb)){
+      verbForms.set(verb+verb.at(-1)+'ed',verb);
+      verbForms.set(verb+verb.at(-1)+'ing',verb);
+    }
+  }
+  for(const [verb,...forms] of [
+    ['be','am','is','are','was','were','been','being'],['have','had','has','having'],['do','did','done','does','doing'],
+    ['go','went','gone','goes','going'],['take','took','taken','takes','taking'],['make','made','makes','making'],
+    ['get','got','gotten','gets','getting'],['give','gave','given','gives','giving'],['come','came','comes','coming'],
+    ['see','saw','seen','sees','seeing'],['find','found','finds','finding'],['bring','brought','brings','bringing'],
+    ['think','thought','thinks','thinking'],['know','knew','known','knows','knowing'],['write','wrote','written','writes','writing'],
+    ['hold','held','holds','holding'],['tell','told','tells','telling'],['say','said','says','saying'],['mean','meant','means','meaning'],
+    ['meet','met','meets','meeting'],['set','sets','setting'],['put','puts','putting'],['pay','paid','pays','paying'],
+    ['read','reads','reading'],['send','sent','sends','sending'],['buy','bought','buys','buying'],['catch','caught','catches','catching'],
+    ['draw','drew','drawn','draws','drawing'],['drive','drove','driven','drives','driving'],['eat','ate','eaten','eats','eating'],
+    ['wear','wore','worn','wears','wearing'],['tear','tore','torn','tears','tearing'],['stand','stood','stands','standing'],
+    ['fight','fought','fights','fighting'],['speak','spoke','spoken','speaks','speaking'],['sit','sat','sits','sitting'],
+    ['feed','fed'],['seek','sought'],['fall','fell','fallen'],['keep','kept'],['leave','left'],['build','built'],['lead','led'],
+    ['lose','lost','losing'],['grow','grew','grown'],['show','showed','shown'],['break','broke','broken'],['rise','rose','risen'],
+    ['run','ran','running'],['throw','threw','thrown'],['teach','taught'],['understand','understood'],['hear','heard','hears','hearing'],
+    ['win','won','wins','winning'],['lie','lay','lain','lies','lying'],['lay','laid','lays','laying'],['tie','ties','tying','tied'],
+    ['study','studied','studies','studying'],['carry','carried','carries','carrying'],['cut','cuts','cutting'],['learn','learnt','learned','learns','learning'],
+  ]) for(const form of forms)verbForms.set(form,verb);
+
+  const nounForms = new Map();
+  const regularNouns = `
+    ability accident account activity animal answer approach area argument article aspect author baby barrier
+    benefit bird book branch building business case category cause cell centre center change challenge chapter
+    characteristic child city class community company comparison concept condition consequence consumer context
+    contract cost country course crop culture customer day decision definition degree demand department detail
+    device difference disaster discovery disease document driver effect element employee energy environment error
+    event example experiment explanation factory family farmer feature field figure fish floor flower food form
+    function garden generation goal group habitat hand head house idea impact industry insect instance institution
+    instruction invention item job journey key language layer leader leaf lesson level library limit line link list
+    location machine material member message method model month museum name nation need neighbour neighbor note number
+    object observation office option outcome owner paper paragraph parent participant part passage pattern person phrase
+    place plan plant policy population position practice principle problem process product project property question
+    reason region relationship report requirement researcher resource result risk road role rule sample scientist
+    section sentence service shape situation skill solution sound source stage step story strategy student study subject
+    survey system table task teacher technology technique term test theory tool topic town tradition type university
+    use value variable version view visitor vote way week word worker world year
+  `.trim().split(/\s+/);
+  for(const noun of regularNouns){
+    const plural=/[^aeiou]y$/.test(noun)?noun.slice(0,-1)+'ies':noun+(/(?:s|x|z|ch|sh)$/.test(noun)?'es':'s');
+    nounForms.set(plural,noun);
+  }
+  for(const [plural,singular] of Object.entries({children:'child',people:'person',men:'man',women:'woman',
+    mice:'mouse',teeth:'tooth',feet:'foot',geese:'goose',leaves:'leaf',lives:'life',wives:'wife',wolves:'wolf',
+    knives:'knife',shelves:'shelf',halves:'half',loaves:'loaf',analyses:'analysis',diagnoses:'diagnosis',
+    crises:'crisis',theses:'thesis',hypotheses:'hypothesis',criteria:'criterion',phenomena:'phenomenon',
+    indices:'index',vertices:'vertex',matrices:'matrix',bacteria:'bacterium',fungi:'fungus'})) nounForms.set(plural,singular);
+  const fixedPlurals=/\b(?:in terms of|in other words|human resources|natural resources|take turns|make amends|make ends meet|with regards to|come to terms with)\b/;
+  function singularNoun(word){
+    return nounForms.get(word)||(/ities$/.test(word)?word.slice(0,-3)+'y':
+      /nesses$/.test(word)?word.slice(0,-2):/(?:ations|ments|ships|isms|ists)$/.test(word)?word.slice(0,-1):word);
+  }
+  const ambiguous = new Set('building clothing drawing during evening finding following hearing involved leading left living meaning meeting missing moving past related reading recording remaining setting standing training understanding writing'.split(' '));
+  function baseTerm(value) {
+    const parts=value.split(' ');
+    const particles=/^(?:about|across|ahead|along|apart|around|away|back|behind|by|down|for|from|in|into|of|off|on|out|over|through|to|together|up|with)$/;
+    if(parts.length>2 && /^(?:has|have|had)$/.test(parts[0]) && verbForms.has(parts[1]))parts.shift();
+    const first=parts[0];
+    if(!ambiguous.has(first) || (parts.length>1 && particles.test(parts[1]) && !/^(?:involved|related)$/.test(first))){
+      const noun=singularNoun(first);
+      parts[0]=parts.length===1 && noun!==first ? noun : verbForms.get(first)||first;
+    }
+    return (fixedPlurals.test(parts.join(' '))?parts:parts.map(singularNoun)).join(' ');
+  }
+
+  const validTerm = /^[a-z]+(?:[-'][a-z]+)*(?: [a-z]+(?:[-'][a-z]+)*){0,11}$/;
+  function asEntry({text,example,source,def,bilingual}) {
+    const selected=term(text);
+    if(!validTerm.test(selected) && (!bilingual || !/[a-z]/.test(selected) || selected.length>1600))return null;
+    return {word:bilingual && example ? selected : baseTerm(selected),example,source,def};
+  }
+
+  function parseData(source,variable) {
+    const data = source.trim().match(new RegExp(`^const ${variable}\\s*=\\s*([\\s\\S]+?);(?=[ \\t]*(?:\\r?\\n|$))`,'m'));
+    if (!data) throw new Error(`Invalid Cambridge IELTS data: ${variable}`);
     return JSON.parse(data[1]);
+  }
+
+  async function readData(edition,file) {
+    const path=(edition===18?'':`${edition}/`)+file+(edition===19 && file==='paper-data.js'?'?v=2':'');
+    const response=await fetch(new URL(path,paperRoot));
+    if(!response.ok)throw new Error(`Could not load Cambridge IELTS ${edition}`);
+    return response.text();
   }
 
   function collectMarks(archive, paper, edition) {
@@ -43,20 +153,17 @@
       for (const marks of batches.values()) {
         marks.sort((a, b) => a.page - b.page || a.index - b.index);
         const selection = marks.map(({text}) => text.trim()).join(' ').replace(/-\s+(?=[a-z])/gi, '-');
-        const word = term(selection);
-        if (!/^[a-z]+(?:[-'][a-z]+)*(?: [a-z]+(?:[-'][a-z]+)*){0,11}$/.test(word)) {
-          skipped++;
-          continue;
-        }
         const example = marks.map(({line}) => line.trim()).join(' ').replace(/\s+/g, ' ');
         const skill = match[2] === 'reading' ? 'Reading' : 'Listening · Questions';
-        items.push({word, example, source: `Cambridge IELTS ${edition} · Test ${match[1]} · ${skill}`});
+        const item=asEntry({text:selection,example,source:`Cambridge IELTS ${edition} · Test ${match[1]} · ${skill}`});
+        if(item)items.push(item);
+        else skipped++;
       }
     }
     return {items, skipped};
   }
 
-  function collectTranscriptMarks(attempts, transcripts, edition) {
+  function collectTranscriptMarks(attempts, transcripts, translations, edition) {
     const items = [];
     let skipped = 0;
     for (const [key, attempt] of attempts) {
@@ -69,13 +176,28 @@
           if (!Array.isArray(marks)) continue;
           for (const mark of marks) {
             const {from, to} = mark || {};
-            const word = example && Number.isInteger(from) && Number.isInteger(to) && from >= 0 && to > from && to <= example.length
-              ? term(example.slice(from, to)) : '';
-            if (!/^[a-z]+(?:[-'][a-z]+)*(?: [a-z]+(?:[-'][a-z]+)*){0,11}$/.test(word)) {
-              skipped++;
-              continue;
+            const entry=example && Number.isInteger(from) && Number.isInteger(to) && from>=0 && to>from && to<=example.length
+              ? asEntry({text:example.slice(from,to),example,source:`Cambridge IELTS ${edition} · Test ${test} · Listening Part ${partIndex % 4 + 1}`}) : null;
+            if(entry)items.push(entry);
+            else skipped++;
+          }
+        }
+      }
+      for(const [part,lines] of Object.entries(attempt.transcriptChineseMarks||{})){
+        const partIndex=Number(part), test=Number(key.split('-')[0]);
+        if(!Number.isInteger(partIndex) || Math.floor(partIndex/4)+1!==test)continue;
+        const source=`Cambridge IELTS ${edition} · Test ${test} · Listening Part ${partIndex%4+1} · Translation`;
+        for(const [line,marks] of Object.entries(lines||{})){
+          const original=transcripts[partIndex]?.[line]?.trim();
+          let from=0;
+          for(const [to,def] of translations?.[partIndex]?.[line]||[]){
+            if(original && marks[from]?.some(mark=>mark.to>mark.from)){
+              const text=original.slice(from,to).replace(/^[A-Z][A-Z ()/]{1,23}:\s*/, '');
+              const item=asEntry({text,example:text,def,source,bilingual:true});
+              if(item)items.push(item);
+              else skipped++;
             }
-            items.push({word, example, source: `Cambridge IELTS ${edition} · Test ${test} · Listening Part ${partIndex % 4 + 1}`});
+            from=to;
           }
         }
       }
@@ -83,18 +205,61 @@
     return {items, skipped};
   }
 
-  async function savedHighlights(storage) {
+  function readingTranslations(editionNumber,archive){
+    return new Promise((resolve,reject)=>{
+      const worker=new Worker(new URL('reading-highlight-import-worker.js?v=1',paperRoot));
+      worker.onmessage=event=>{worker.terminate();resolve(event.data);};
+      worker.onerror=event=>{worker.terminate();reject(new Error(event.message));};
+      worker.postMessage({editionNumber,archive});
+    });
+  }
+
+  async function translatedSelection(chinese){
+    if(!/[\u3400-\u9fff]/.test(chinese))return '';
+    const url='https://api.mymemory.translated.net/get?q='+encodeURIComponent(chinese.slice(0,180))+'&langpair=zh-CN%7Cen';
+    try{
+      const response=await fetch(url,{signal:AbortSignal.timeout(4500)});
+      if(!response.ok)return '';
+      const data=await response.json();
+      return Number(data.responseStatus)===200 ? data.responseData?.translatedText||'' : '';
+    }catch{return '';}
+  }
+
+  async function importTranslationSelections(selections,allowLookup){
+    const items=[];
+    let skipped=0;
+    for(const selection of selections){
+      const entry=asEntry(selection.text?selection:{
+        ...selection,text:allowLookup?await translatedSelection(selection.chinese):'',
+        def:selection.chinese,bilingual:true,
+      });
+      if(entry)items.push(entry);
+      else skipped++;
+    }
+    return {items,skipped};
+  }
+
+  async function savedHighlights(storage,allowLookup=false) {
     const results = await Promise.allSettled(editions.map(async (edition) => {
       const archive = JSON.parse(storage.getItem(`cambridge-ielts${edition}-attempts-v1`) || '{}') || {};
       const hasMarks = Object.entries(archive).some(([key, attempt]) =>
         /^\d+-(?:reading|listening)(?:-mock)?$/.test(key) &&
         Object.values(attempt?.textMarks || {}).some((marks) => Array.isArray(marks) && marks.length));
+      const hasTranslationMarks=Object.entries(archive).some(([key,attempt])=>
+        /^\d+-reading(?:-mock)?$/.test(key) && Object.keys(attempt?.readingTranslationMarks||{}).length);
+      const reading=hasTranslationMarks ? readingTranslations(edition,archive) : Promise.resolve(null);
       const listening = Object.entries(archive).filter(([key, attempt]) =>
-        /^\d+-listening(?:-mock)?$/.test(key) && Object.keys(attempt?.transcriptMarks || {}).length);
+        /^\d+-listening(?:-mock)?$/.test(key) && (Object.keys(attempt?.transcriptMarks||{}).length ||
+          Object.keys(attempt?.transcriptChineseMarks||{}).length));
       return Promise.allSettled([
-        hasMarks ? readData(edition, 'paper-data.js', 'paperPages').then(paper => collectMarks(archive, paper, edition)) : null,
-        listening.length ? readData(edition, 'listening-content.js', 'listeningTranscripts')
-          .then(transcripts => collectTranscriptMarks(listening, transcripts, edition)) : null,
+        hasMarks||hasTranslationMarks ? Promise.all([readData(edition,'paper-data.js'),reading.catch(()=>null)])
+          .then(([paper,converted])=>collectMarks(converted?.archive||archive,parseData(paper,'paperPages'),edition)) : null,
+        hasTranslationMarks ? reading.then(async converted=>{
+          const result=await importTranslationSelections(converted.selections,allowLookup);
+          return {items:result.items,skipped:result.skipped+converted.skipped};
+        }) : null,
+        listening.length ? readData(edition,'listening-content.js').then(content=>collectTranscriptMarks(listening,
+          parseData(content,'listeningTranscripts'),parseData(content,'listeningSentenceTranslations'),edition)) : null,
       ]);
     }));
     const parts = results.flatMap(result => result.value || []);

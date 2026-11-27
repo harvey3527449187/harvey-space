@@ -155,7 +155,7 @@
   </dialog>
 
 <script src="../harvey-cloud.js"></script>
-<script src="ielts-vocabulary.js"></script>
+<script src="ielts-vocabulary.js?v=2"></script>
 <script>
 (function(){
   "use strict";
@@ -524,8 +524,12 @@
       status.textContent = "Loading saved IELTS highlights…";
     }
     try {
-      var result = await window.IeltsVocabulary.savedHighlights(localStorage);
-      var items = Array.from(new Map(result.items.map(function(item){ return [item.word,item]; })).values());
+      var result = await window.IeltsVocabulary.savedHighlights(localStorage,!automatic);
+      var byWord = new Map();
+      result.items.forEach(function(item){
+        if(!byWord.has(item.word) || (!byWord.get(item.word).def && item.def)) byWord.set(item.word,item);
+      });
+      var items = Array.from(byWord.values());
       var added = addIeltsEntries(items);
       if(automatic && !added.length){ renderLibrary($("search").value); return; }
       showResult = true;

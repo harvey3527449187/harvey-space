@@ -113,9 +113,9 @@ function readingSentences(text){
   return readingSentenceRanges(joined).map(entry=>cleanReadingEnglish(entry.segment)).filter(text=>/[\p{L}\p{N}]/u.test(text));
 }
 
-function readingSelectionText(selection){
+function readingSelectionSegments(selection){
   const pages=[...new Set(selection.lines.map(line=>Number(line.page)))];
-  return cleanReadingEnglish(pages.flatMap(page=>{
+  return pages.flatMap(page=>{
     const offsets=new Map(selection.lines.filter(line=>Number(line.page)===page).map(line=>[line.line,line]));
     const columns=readingPageColumns(page,offsets.keys());
     const endpoints=[selection.lines[0],selection.lines.at(-1)];
@@ -124,9 +124,13 @@ function readingSelectionText(selection){
     return (ownColumn?[ownColumn]:columns).flatMap(column=>
       readingOrderedRows(column).flatMap(group=>group.rows.map(({index})=>{
         const {from,to}=offsets.get(index);
-        return paperPages[page].lines[index][4].slice(from,to);
+        return {page,line:index,from,to};
       })));
-  }).join(' '));
+  });
+}
+
+function readingSelectionText(selection){
+  return readingHighlightModel(readingSelectionSegments(selection)).text;
 }
 
 const readingExpressions=[
@@ -325,13 +329,189 @@ function referenceForTest(){
 function readingReferenceRows(part,blocks){
   const authored=referenceForTest().reading?.[part]||[];
   const urban=edition.number===18 && testNumber===1 && part===0;
-  return blocks.map(({text},i)=>{
-    const english=cleanReadingEnglish(text);
+  return blocks.map((block,i)=>{
+    const {text}=block;
+    const model=readingBlockHighlightModel(block);
+    const english=model.text;
     const key='passage:'+part+':paragraph:'+i;
-    if(!urban)return {key,english,chinese:authored[i]||''};
-    const sentences=readingSentences(text);
-    return {key,english,chinese:sentences.map(urbanFarmingTranslation).filter(Boolean).join('')};
+    const sentences=readingSentenceRanges(text).flatMap(({index,segment})=>{
+      const sentence=readingBlockHighlightModel(block,index,index+segment.length);
+      if(!/[\p{L}\p{N}]/u.test(sentence.text))return [];
+      const chinese=exactReadingReference(part,sentence.text);
+      return [{key:key+':sentence:'+sentence.text,english:sentence.text,chinese,model:sentence}];
+    });
+    const chinese=urban ? readingSentences(text).map(urbanFarmingTranslation).filter(Boolean).join('') : authored[i]||'';
+    return {key,english,chinese,model,sentences};
   });
+}
+
+const readingHighlightCache=new Map();
+function readingHighlightRows(part){
+  const key=testNumber+':'+part;
+  if(!readingHighlightCache.has(key))readingHighlightCache.set(key,readingReferenceRows(part,readingPassageBlocks(part)));
+  return readingHighlightCache.get(key);
+}
+
+function readingHighlightModel(spans){
+  const raw=[];
+  const points=[];
+  for(const {page,line,from,to} of spans){
+    const source=paperPages[page]?.lines?.[line]?.[4];
+    if(!source)continue;
+    raw.push(source.slice(from,to));
+    for(let index=from;index<to;index++){
+      if(!/\s/.test(source[index]))points.push({page,line,index});
+    }
+  }
+  const text=cleanReadingEnglish(raw.join(' '));
+  const offsets=Array.from({length:text.length},(_,index)=>index).filter(index=>!/\s/.test(text[index]));
+  return {text,spans,points,offsets};
+}
+
+function readingBlockHighlightModel(block,from=0,to=block.text.length){
+  const spans=block.lineOffsets.flatMap(({page,index:line,offset})=>{
+    const source=paperPages[page].lines[line][4];
+    const trim=source.length-source.trimStart().length;
+    const start=Math.max(from,offset), end=Math.min(to,offset+source.trim().length);
+    return end>start?[{page,line,from:trim+start-offset,to:trim+end-offset}]:[];
+  });
+  return readingHighlightModel(spans);
+}
+
+function readingMarksToPaper(model,marks){
+  const projected=[];
+  for(const {from,to,batch} of marks){
+    let span;
+    model.offsets.forEach((offset,index)=>{
+      if(offset<from || offset>=to)return;
+      const point=model.points[index];
+      if(!point)return;
+      if(span?.page===point.page && span.line===point.line)span.to=point.index+1;
+      else projected.push(span={page:point.page,line:point.line,from:point.index,to:point.index+1,batch});
+    });
+  }
+  return projected;
+}
+
+function paperMarksToReading(model,paperMarks=attempt?.textMarks){
+  const spans=[];
+  const byLine=new Map();
+  for(const {page,line} of model.spans){
+    const id=page+':'+line;
+    if(!byLine.has(id))byLine.set(id,(paperMarks?.[page]||[]).filter(mark=>mark.line===line));
+  }
+  let range;
+  model.points.forEach(({page,line,index},i)=>{
+    const from=model.offsets[i];
+    if(from===undefined)return;
+    if(!byLine.get(page+':'+line)?.some(mark=>mark.from<=index&&index<mark.to)){range=null;return;}
+    if(range)range.to=from+1;
+    else spans.push(range={from,to:from+1});
+  });
+  return spans;
+}
+
+function legacyReadingSelection(text,rows){
+  const models=rows.map(row=>row.model);
+  for(const [,questions] of data().reading){
+    for(const [page] of questions){
+      const lines=paperPages[page]?.lines||[];
+      lines.forEach((line,index)=>models.push(readingHighlightModel([{page,line:index,from:0,to:line[4].length}])));
+    }
+  }
+  const matches=[];
+  for(const model of models){
+    const start=model.text.indexOf(text);
+    if(start<0)continue;
+    if(model.text.indexOf(text,start+1)>=0)return null;
+    matches.push({model,start});
+    if(matches.length>1)return null;
+  }
+  return matches[0];
+}
+
+const reconciledReadingHighlights=new WeakSet();
+function reconcileReadingHighlights(save){
+  if(!attempt || reconciledReadingHighlights.has(attempt))return;
+  reconciledReadingHighlights.add(attempt);
+  const legacy=attempt?.readingTranslationMarks;
+  const entries=Object.entries(legacy||{}).filter(([key])=>key.endsWith(':en'));
+  if(!entries.length)return;
+  const rows=data().reading.flatMap((_,part)=>readingHighlightRows(part));
+  const models=new Map(rows.flatMap(row=>[row,...row.sentences]).map(row=>[row.key+':en',row.model]));
+  let changed=false;
+  for(const [key,marks] of entries){
+    const model=models.get(key);
+    const match=!model && key.startsWith('selection:')?legacyReadingSelection(key.slice(10,-3),rows):null;
+    if(!model && !match)continue;
+    const moved=readingMarksToPaper(model||match.model,match?marks.map(mark=>({
+      ...mark,from:mark.from+match.start,to:mark.to+match.start,
+    })):marks);
+    if(!moved.length)continue;
+    storeReadingPaperMarks(moved);
+    delete legacy[key];
+    changed=true;
+  }
+  if(changed)save?.();
+}
+
+function storeReadingPaperMarks(marks){
+  attempt.textMarks??={};
+  for(const {page,...mark} of marks){
+    const saved=attempt.textMarks[page]??=[];
+    if(!saved.some(entry=>entry.line===mark.line && entry.from===mark.from && entry.to===mark.to))saved.push(mark);
+  }
+}
+
+function readingChinesePairs(row){
+  if(!row.model || !row.chinese)return [];
+  let from=0;
+  const pairs=[];
+  for(const sentence of row.sentences||[]){
+    if(!sentence.chinese)return [{model:row.model,from:0,to:row.chinese.length}];
+    const start=row.chinese.indexOf(sentence.chinese,from);
+    if(start<0 || row.chinese.slice(from,start).trim())return [{model:row.model,from:0,to:row.chinese.length}];
+    from=start+sentence.chinese.length;
+    pairs.push({model:sentence.model,from:start,to:from});
+  }
+  return pairs.length && !row.chinese.slice(from).trim()?pairs:[{model:row.model,from:0,to:row.chinese.length}];
+}
+
+function readingChineseSelections(){
+  const saved=attempt?.readingTranslationMarks;
+  if(!Object.keys(saved||{}).some(key=>key.endsWith(':zh-CN')))return [];
+  return data().reading.flatMap((_,part)=>readingHighlightRows(part)).flatMap(row=>[row,...row.sentences]).flatMap(row=>{
+    const marks=saved[row.key+':zh-CN']||[];
+    return readingChinesePairs(row).flatMap(pair=>{
+      const selected=marks.filter(mark=>mark.from<pair.to && mark.to>pair.from);
+      return selected.length?[{...pair,marks:selected,chinese:row.chinese.slice(pair.from,pair.to)}]:[];
+    });
+  });
+}
+
+const linkedReadingHighlights=new WeakMap();
+function readingChinesePaperMarks(){
+  if(!linkedReadingHighlights.has(attempt)){
+    const pages={};
+    for(const {model,marks} of readingChineseSelections()){
+      for(const span of readingMarksToPaper(model,marks.map(({batch})=>({from:0,to:model.text.length,batch})))){
+        const {page,...mark}=span;
+        (pages[page]??=[]).push(mark);
+      }
+    }
+    linkedReadingHighlights.set(attempt,pages);
+  }
+  return linkedReadingHighlights.get(attempt);
+}
+
+function removeReadingReferenceBatch(batch){
+  const saved=attempt.readingTranslationMarks||{};
+  for(const [key,marks] of Object.entries(saved)){
+    const remainder=marks.filter(mark=>mark.batch!==batch);
+    if(remainder.length)saved[key]=remainder;
+    else delete saved[key];
+  }
+  linkedReadingHighlights.delete(attempt);
 }
 
 function exactReadingReference(part,sentence){
@@ -361,7 +541,7 @@ function selectionReadingBlocks(selection,blocks){
 
 function showReadingTranslation(part){
   if(!readingTranslationAllowed())return;
-  const rows=readingReferenceRows(part,readingPassageBlocks(part));
+  const rows=readingHighlightRows(part);
   openStudyReference('Test '+testNumber+' · Passage '+(part+1)+' · Full translation',rows);
 }
 
@@ -384,13 +564,13 @@ function showReadingSelection(selection){
   if(section==='reading' && questionPages.length!==pages.length){
     const part=partFor(current);
     const blocks=readingPassageBlocks(part);
-    const references=readingReferenceRows(part,blocks);
+    const references=readingHighlightRows(part);
     for(const {index,sentences} of selectionReadingBlocks(selection,blocks)){
       context.push(...sentences);
       const row=references[index];
-      const exact=sentences.map(sentence=>exactReadingReference(part,sentence));
-      if(exact.length && exact.every(Boolean)){
-        rows.push(...exact.map((chinese,i)=>({key:row.key+':sentence:'+sentences[i],english:sentences[i],chinese})));
+      const exact=sentences.map(sentence=>row.sentences.find(entry=>entry.english===sentence));
+      if(exact.length && exact.every(entry=>entry?.chinese)){
+        rows.push(...exact);
       }else{
         rows.push({...row,label:'Paragraph in context'});
       }
@@ -398,7 +578,7 @@ function showReadingSelection(selection){
   }
   window.getSelection()?.removeAllRanges();
   clearPaperSelection();
-  openStudyReference('Selection · Translation and notes',rows,{text,context:context.join(' ')});
+  openStudyReference('Selection · Translation and notes',rows,{text,context:context.join(' '),model:readingHighlightModel(readingSelectionSegments(selection))});
 }
 
 function showQuestionReference(){
@@ -430,9 +610,16 @@ function studyNotesHtml(text,context=''){
       '<p>No annotated phrase in this selection.</p>')+'</section>';
 }
 
-function referenceTextHtml(tag,className,key,language,text){
-  const id=key+':'+language;
-  const marks=attempt?.readingTranslationMarks?.[id]||[];
+function readingReferenceMarks(row,language){
+  const marks=attempt?.readingTranslationMarks?.[row.key+':'+language]||[];
+  if(section!=='reading' || !row.model)return marks;
+  if(language==='en')return marks.concat(paperMarksToReading(row.model),paperMarksToReading(row.model,readingChinesePaperMarks()));
+  return marks.concat(readingChinesePairs(row).filter(pair=>paperMarksToReading(pair.model).length));
+}
+
+function referenceTextHtml(tag,className,row,language,text){
+  const id=row.key+':'+language;
+  const marks=readingReferenceMarks(row,language);
   return '<'+tag+' class="'+className+'" lang="'+language+'" data-reference-mark="'+esc(id)+'">'+
     formatHighlightedText(text,marks)+'</'+tag+'>';
 }
@@ -440,39 +627,57 @@ function referenceTextHtml(tag,className,key,language,text){
 function studyReferenceRowsHtml(rows){
   const unavailable='<p class="reference-unavailable">A reference translation for this section is not available yet.</p>';
   if(!rows.length)return unavailable;
-  return rows.map(({key,label,english,chinese})=>'<section class="reading-translation-pair">'+
-    (label?'<h4>'+esc(label)+'</h4>':'')+
-    (english?referenceTextHtml('p','translation-english',key,'en',english):'')+
-    (chinese?referenceTextHtml('p','translation-chinese',key,'zh-CN',chinese):unavailable)+'</section>').join('');
+  return rows.map(row=>'<section class="reading-translation-pair">'+
+    (row.label?'<h4>'+esc(row.label)+'</h4>':'')+
+    (row.english?referenceTextHtml('p','translation-english',row,'en',row.english):'')+
+    (row.chinese?referenceTextHtml('p','translation-chinese',row,'zh-CN',row.chinese):unavailable)+'</section>').join('');
 }
 
-function studyReferenceHtml(rows,{text='',context=''}={}){
+function studyReferenceHtml(rows,{text='',context='',model}={}){
   const tools=section==='reading'?'<div class="reference-mark-tools" role="group" aria-label="Translation highlights">'+
     '<button type="button" id="reference-highlight" disabled>Highlight selection</button>'+
     '<button type="button" id="reference-undo" disabled>Undo highlight</button></div>':'';
   return tools+(text?'<div class="selection-reference"><span>Selected text</span>'+
-    referenceTextHtml('blockquote','','selection:'+text,'en',text)+'</div>':'')+
+    referenceTextHtml('blockquote','',{key:'selection:'+text,model},'en',text)+'</div>':'')+
     '<div class="reference-layout'+(text?' has-notes':'')+'">'+
     '<section class="reference-translation"><h3>Reference translation</h3>'+studyReferenceRowsHtml(rows)+'</section>'+
     studyNotesHtml(text,context)+'</div>';
 }
 
-function openStudyReference(title,rows,options){
+function openStudyReference(title,rows,options={}){
+  if(section==='reading')reconcileReadingHighlights(put);
   show(title,studyReferenceHtml(rows,options),[['Close',closeDialog]]);
   dialog.classList.add('study-dialog','reading-translation-dialog');
   dialog.scrollTop=0;
-  installReferenceHighlights();
+  installReferenceHighlights(rows,options);
 }
 
-function installReferenceHighlights(){
+function installReferenceHighlights(rows,{text,model}){
   const highlight=dialog.querySelector('#reference-highlight');
   referenceSelectionChanged=undefined;
   if(!highlight)return;
   const undo=dialog.querySelector('#reference-undo');
   const blocks=[...dialog.querySelectorAll('[data-reference-mark]')];
   const saved=attempt.readingTranslationMarks??={};
+  const references=new Map(rows.map(row=>[row.key,row]));
+  if(text)references.set('selection:'+text,{key:'selection:'+text,model});
   const keyOf=block=>block.dataset.referenceMark;
-  const latestBatch=()=>Math.max(0,...blocks.flatMap(block=>(saved[keyOf(block)]||[]).map(mark=>mark.batch||0)));
+  const rowOf=block=>references.get(keyOf(block).slice(0,-(block.lang.length+1)));
+  const latestBatch=()=>{
+    let latest=0;
+    const linked=readingChinesePaperMarks();
+    for(const block of blocks){
+      for(const mark of saved[keyOf(block)]||[])latest=Math.max(latest,mark.batch||0);
+      for(const {page,line,from,to} of rowOf(block)?.model?.spans||[]){
+        for(const marks of [attempt.textMarks?.[page],linked[page]]){
+          for(const mark of marks||[]){
+            if(mark.line===line && mark.from<to && mark.to>from)latest=Math.max(latest,mark.batch||0);
+          }
+        }
+      }
+    }
+    return latest;
+  };
   const selection=()=>{
     const current=window.getSelection();
     if(!current?.rangeCount || current.isCollapsed)return [];
@@ -488,7 +693,10 @@ function installReferenceHighlights(){
     highlight.disabled=!selection().length;
     undo.disabled=!latestBatch();
   };
-  const repaint=block=>{block.innerHTML=formatHighlightedText(block.textContent,saved[keyOf(block)]||[]);};
+  const repaint=()=>{
+    for(const block of blocks)block.innerHTML=formatHighlightedText(block.textContent,readingReferenceMarks(rowOf(block),block.lang));
+    refreshPaperHighlights(new Set(Object.keys(paperPages).map(Number)));
+  };
   highlight.onpointerdown=undo.onpointerdown=event=>event.preventDefault();
   highlight.onclick=()=>{
     const spans=selection();
@@ -496,22 +704,24 @@ function installReferenceHighlights(){
     const batch=Math.max(Date.now(),latestBatch()+1);
     window.getSelection()?.removeAllRanges();
     for(const {block,from,to} of spans){
-      (saved[keyOf(block)]??=[]).push({from,to,batch});
-      repaint(block);
+      const model=rowOf(block)?.model;
+      if(block.lang==='en' && model)storeReadingPaperMarks(readingMarksToPaper(model,[{from,to,batch}]));
+      else (saved[keyOf(block)]??=[]).push({from,to,batch});
     }
+    linkedReadingHighlights.delete(attempt);
+    repaint();
     put();
     refresh();
   };
   undo.onclick=()=>{
     const batch=latestBatch();
     if(!batch)return;
-    for(const [key,marks] of Object.entries(saved)){
-      if(!marks.some(mark=>mark.batch===batch))continue;
-      const remaining=marks.filter(mark=>mark.batch!==batch);
-      if(remaining.length)saved[key]=remaining;
-      else delete saved[key];
-      blocks.filter(block=>keyOf(block)===key).forEach(repaint);
+    removeReadingReferenceBatch(batch);
+    for(const [page,marks] of Object.entries(attempt.textMarks||{})){
+      attempt.textMarks[page]=marks.filter(mark=>mark.batch!==batch);
     }
+    window.getSelection()?.removeAllRanges();
+    repaint();
     put();
     refresh();
   };
@@ -520,7 +730,7 @@ function installReferenceHighlights(){
 }
 
 let referenceSelectionChanged;
-document.addEventListener('selectionchange',()=>{
+if(typeof document!=='undefined')document.addEventListener('selectionchange',()=>{
   if(dialog.open && dialog.classList.contains('reading-translation-dialog')) referenceSelectionChanged?.();
 });
 

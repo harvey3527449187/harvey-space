@@ -132,7 +132,9 @@ function questionLineStyle(line, position, bodyHeight, nativeStyle, rules, answe
 }
 
 function paperTextMarks(page) {
-  return attempt?.textMarks?.[page] || [];
+  if(section!=='reading' || !attempt)return attempt?.textMarks?.[page]||[];
+  reconcileReadingHighlights(put);
+  return (attempt.textMarks?.[page]||[]).concat(readingChinesePaperMarks()[page]||[]);
 }
 
 function formatPaperLine(page,line,value) {
@@ -281,12 +283,16 @@ function undoTextHighlight() {
   const newest=Math.max(0,...[...pages].flatMap(page=>paperTextMarks(page).map(mark=>mark.batch)));
   if(!newest)return;
   const changed=new Set();
-  for(const [page,marks] of Object.entries(attempt.textMarks)){
+  for(const [page,marks] of Object.entries(attempt.textMarks||{})){
     const remainder=marks.filter(mark=>mark.batch!==newest);
     if(remainder.length!==marks.length){
       attempt.textMarks[page]=remainder;
       changed.add(page);
     }
+  }
+  if(section==='reading'){
+    removeReadingReferenceBatch(newest);
+    for(const page of pages)changed.add(page);
   }
   window.getSelection()?.removeAllRanges();
   clearPaperSelection();

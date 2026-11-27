@@ -163,7 +163,7 @@ function transcriptEnglish(value,marks,from=0) {
 
 function transcriptSentencePairs(idx,lineNumber,original) {
   let from=0;
-  return listeningSentenceTranslations[idx][lineNumber].map(([to,chinese])=>{
+  return (listeningSentenceTranslations[idx]?.[lineNumber]||[]).map(([to,chinese])=>{
     const pair={from,to,english:original.slice(from,to),chinese};
     from=to;
     return pair;
@@ -186,14 +186,18 @@ function renderQuestionGroups(idx,translated) {
       if(!original)return '';
       const lineNumber=start+index;
       const highlights=marks?.[lineNumber]||[];
+      const pairs=transcriptSentencePairs(idx,lineNumber,original);
+      const directChinese=chineseMarks?.[lineNumber]||{};
+      const linked=pairs.filter(({from})=>directChinese[from]?.length).map(({from,to})=>({from,to}));
       const lineAttr=' data-transcript-line="'+lineNumber+'"';
-      if(!translated)return '<p'+lineAttr+'>'+transcriptEnglish(original,highlights)+'</p>';
-      const pairs=transcriptSentencePairs(idx,lineNumber,original).map(({from,english,chinese})=>
+      if(!translated)return '<p'+lineAttr+'>'+transcriptEnglish(original,highlights.concat(linked))+'</p>';
+      const bilingual=pairs.map(({from,to,english,chinese})=>
         '<div class="transcript-sentence"><p lang="en" data-transcript-offset="'+from+'">'+
-        transcriptEnglish(english,highlights,from)+'</p>'+
+        transcriptEnglish(english,highlights.concat(linked),from)+'</p>'+
         '<p lang="zh-CN" data-transcript-offset="'+from+'">'+
-        formatHighlightedText(chinese,chineseMarks?.[lineNumber]?.[from]||[])+'</p></div>').join('');
-      return '<div class="transcript-turn"'+lineAttr+'>'+pairs+'</div>';
+        formatHighlightedText(chinese,(directChinese[from]||[]).concat(
+          highlights.some(mark=>mark.from<to && mark.to>from)?[{from:0,to:chinese.length}]:[]))+'</p></div>').join('');
+      return '<div class="transcript-turn"'+lineAttr+'>'+bilingual+'</div>';
     }).join('');
     return '<section class="part-question-group" data-transcript-group="'+i+'"><h3>'+label+'</h3>'+html+'</section>';
   }).join('<hr class="part-script-divider">');
