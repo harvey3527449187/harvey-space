@@ -154,8 +154,8 @@
     <div id="libraryDictionary"></div>
   </dialog>
 
-<script src="../harvey-cloud.js"></script>
-<script src="ielts-vocabulary.js?v=2"></script>
+<script src="../harvey-cloud.js?v=2"></script>
+<script src="ielts-vocabulary.js?v=3"></script>
 <script>
 (function(){
   "use strict";
@@ -481,7 +481,7 @@
   }
 
   function isPhrase(key){ return /\s/.test(key.trim()); }
-  function studyKeys(){ return Object.keys(state.words).filter(function(key){ return includePhrases || !isPhrase(key); }); }
+  function studyKeys(){ return Object.keys(state.words).filter(function(key){ return (mode!=="spell" && includePhrases) || !isPhrase(key); }); }
 
   function addIeltsEntries(items){
     var added = [], changed = false;
@@ -524,6 +524,7 @@
       status.textContent = "Loading saved IELTS highlights…";
     }
     try {
+      await window.HarveyCloud?.recoverIeltsHighlights?.().catch(function(){});
       var result = await window.IeltsVocabulary.savedHighlights(localStorage,!automatic);
       var byWord = new Map();
       result.items.forEach(function(item){
@@ -970,7 +971,10 @@
       w.due = today;
     } else {
       w.repetition = (w.repetition||0) + 1;
-      if(grade === 1){
+      if(grade === 3){
+        w.repetition = Math.max(3,w.repetition);
+        w.interval = Math.max(45,w.interval||0);
+      } else if(grade === 1){
         w.easiness = Math.max(1.3, w.easiness - 0.15);
         w.interval = (w.interval === 0) ? 1 : Math.max(1, Math.round(w.interval * 1.2));
       } else {
@@ -1273,7 +1277,8 @@
       '<div class="pronunciation">'+(phonetic?'<span class="phonetic">'+esc(phonetic)+'</span>':'')+
       '<button class="audio-btn" id="audioBtn" aria-label="Listen to pronunciation">Listen</button></div>'+
       '<div class="quiz-options" id="quizOptions">'+options+'</div>'+ 
-      '<div class="quiz-feedback" id="quizFeedback" role="status"></div></div>'+recallNavHtml()+studyDictionaryHtml();
+      '<div class="quiz-feedback" id="quizFeedback" role="status"></div>'+
+      '<button type="button" class="btn gray" id="familiarBtn">Very familiar</button></div>'+recallNavHtml()+studyDictionaryHtml();
     $("studyDictionary").hidden=true;
 
     function pick(index){
@@ -1302,6 +1307,15 @@
       else $("quizFeedback").innerHTML='<span style="color:var(--good)">Correct</span>';
       revealStudyDictionary(key);
     }
+    $("familiarBtn").hidden=card.answered && card.grade!==0;
+    $("familiarBtn").onclick=function(){
+      review(key,3);
+      for(var entry of recallDeck){
+        if(entry.key===key && (!entry.answered || entry.grade===0)){ entry.answered=true; entry.grade=3; }
+      }
+      qIndex++;
+      renderStudy();
+    };
     $("audioBtn").onclick=function(){playWord(key);};
     $("quizOptions").querySelectorAll(".quiz-option").forEach(function(b){b.onclick=function(){pick(parseInt(this.getAttribute("data-choice"),10));};});
     paintAnswer(); bindRecallNav();
@@ -1327,7 +1341,7 @@
         '<span class="num">'+remain+' remaining</span>' +
       '</div>' +
       '<div class="card">' +
-        '<div class="tag">Spell the '+(isPhrase(key)?'phrase':'word')+'</div>' +
+        '<div class="tag">Spell the word</div>' +
         '<div class="def-big">'+(w.def ? formatDef(w.def) : w.readingSource ? 'Listen and type what you hear' : 'No definition')+'</div>' +
         '<button class="audio-btn" id="audioBtn" title="Listen to pronunciation" aria-label="Listen to pronunciation">Listen</button>' +
         (phonetic ? '<div class="phonetic" id="spellPhon" style="visibility:hidden">'+esc(phonetic)+'</div>' : '') +
@@ -1336,6 +1350,7 @@
         '<div class="spell-actions">' +
           (phonetic ? '<button class="btn gray" id="hintBtn">Show phonetics</button>' : '') +
           '<button class="btn gray" id="giveUpBtn">Reveal answer</button>' +
+          '<button type="button" class="btn gray" id="familiarBtn">Very familiar</button>' +
         '</div>' +
         '<div class="spell-result" id="spellResult" role="status"></div>' +
       '</div>' +
@@ -1428,6 +1443,13 @@
     if(hintBtn) hintBtn.onclick = function(){ usedHint = true; $("spellPhon").style.visibility = "visible"; hintBtn.disabled = true; };
     var gbtn = $("giveUpBtn");
     if(gbtn) gbtn.onclick = giveUp;
+    $("familiarBtn").onclick=function(event){
+      event.stopPropagation();
+      review(key,3);
+      retryQueue=retryQueue.filter(function(word){return word!==key;});
+      finish();
+      next();
+    };
 
     v.querySelector(".card").onclick = function(){ if(!done) input.focus(); };
     setTimeout(function(){ if(!done) input.focus(); }, 0);
@@ -1664,6 +1686,7 @@
     document.addEventListener("keydown", function(e){
       if($("quickModal").classList.contains("open")){ if(e.key==="Escape"){ e.preventDefault(); closeQuickAdd(); } return; }
       if(!$("study").classList.contains("active")) return;
+      if(e.target?.id==="familiarBtn") return;
       if(mode === "spell"){
         if(e.key === "Enter" && window._spellNext){ e.preventDefault(); window._spellNext(); }
         return;
@@ -1678,6 +1701,8 @@
   }
 
   function startStudy(extraCount){
+    $("includePhrases").disabled = mode === "spell";
+    $("includePhrases").checked = mode!=="spell" && includePhrases;
     studyDate = todayStr();
     queue = buildQueue(extraCount); qIndex = 0;
     studyTarget = queue.length + completedToday();

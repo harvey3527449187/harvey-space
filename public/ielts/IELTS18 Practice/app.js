@@ -20,6 +20,16 @@ let practiceClockStarted = null;
 let pageActive = true;
 
 const getKey = (test, skill, mock=false) => test + '-' + skill + (mock?'-mock':'');
+function retainedHighlights(record){
+  return Object.fromEntries(['marks','textMarks','readingTranslationMarks','transcriptMarks','transcriptChineseMarks']
+    .filter(field=>record?.[field]).map(field=>[field,record[field]]));
+}
+
+function resetPractice(key){
+  const highlights=retainedHighlights(attempts[key]);
+  if(Object.keys(highlights).length)attempts[key]={...highlights,resetPending:true};
+  else delete attempts[key];
+}
 const put = () => {
   try {
     localStorage.setItem(archiveKey, JSON.stringify(attempts));
@@ -42,7 +52,8 @@ function home() {
   const rows = tests.map((_,i)=>{
     const n=i+1;
     const buttons = Object.keys(names).map(skill=>{
-      const saved=attempts[getKey(n,skill)];
+      const record=attempts[getKey(n,skill)];
+      const saved=record?.resetPending?null:record;
       return '<button data-open="'+skill+'" data-test="'+n+'">'+(saved?.submitted ? resultText(skill) : (saved?'Resume ':'')+skillLabel[skill])+'</button>';
     }).join('');
     const mockStarted=sequence.some(skill=>attempts[getKey(n,skill,true)]);
@@ -98,7 +109,7 @@ function home() {
     show('Test '+n+' mock complete','<p>Choose a section to review, or restart this mock to clear its answers.</p>',[
       ['Back',closeDialog],
       ...sequence.map(skill=>[resultText(skill),()=>{closeDialog();open(n,skill,true)}]),
-      ['Restart mock',()=>{sequence.forEach(s=>delete attempts[getKey(n,s,true)]);put();closeDialog();open(n,'listening',true)},true],
+      ['Restart mock',()=>{sequence.forEach(s=>resetPractice(getKey(n,s,true)));put();closeDialog();open(n,'listening',true)},true],
     ]);
   });
 }
@@ -130,7 +141,7 @@ function open(n,skill,inFull=false) {
   const key=getKey(n,skill,inFull);
   attempt=attempts[key];
   if(attempt?.submitted) return review();
-  if(attempt){
+  if(attempt && !attempt.resetPending){
     if(skill==='listening' && !inFull && attempt.deadline){
       attempt.deadline=0;
       put();
@@ -140,7 +151,7 @@ function open(n,skill,inFull=false) {
   const begin=()=>{
     closeDialog();
     const duration=['reading','writing'].includes(skill)?3600000:0;
-    attempt=attempts[key]={answers:{},flags:{},notes:{},textMarks:{},current:1,submitted:false,deadline:inFull&&duration?Date.now()+duration:0};
+    attempt=attempts[key]={answers:{},flags:{},notes:{},textMarks:{},...retainedHighlights(attempts[key]),current:1,submitted:false,deadline:inFull&&duration?Date.now()+duration:0};
     if(!inFull && duration) attempt.remainingMs=duration;
     put();
     resume();
@@ -578,8 +589,8 @@ function review(hideAnswers=false) {
   const transcript=document.querySelector('#show-transcript');
   if(transcript)transcript.onclick=()=>showResource('transcript',n);
   bindStudySupport(app);
-  document.querySelector('#again').onclick=()=>show('Retry this section?','<p>Your answers and annotations for this section will be cleared.</p>',[
-    ['Cancel',closeDialog],['Retry',()=>{closeDialog();delete attempts[getKey(n,skill,mock)];put();open(n,skill,mock)},true],
+  document.querySelector('#again').onclick=()=>show('Retry this section?','<p>Your answers will be cleared. Your highlights will be kept.</p>',[
+    ['Cancel',closeDialog],['Retry',()=>{closeDialog();resetPractice(getKey(n,skill,mock));put();open(n,skill,mock)},true],
   ]);
 }
 window.addEventListener('storage', (event) => {
@@ -587,11 +598,17 @@ window.addEventListener('storage', (event) => {
   try {
     const next = JSON.parse(event.newValue);
     const activeKey = attempt && getKey(testNumber, section, full);
-    if (activeKey && next[activeKey]) Object.assign(attempt, next[activeKey]);
+    if (activeKey && next[activeKey]) {
+      Object.assign(attempt, next[activeKey]);
+      reconciledReadingHighlights.delete(attempt);
+      linkedReadingHighlights.delete(attempt);
+    }
     attempts = activeKey && next[activeKey] ? {...next, [activeKey]: attempt} : next;
     if (!attempt && !dialog.open) home();
     else if (activeKey && !next[activeKey] && !dialog.open) home();
+    else if (activeKey && !dialog.open) refreshPaperHighlights(new Set(Object.keys(paperPages).map(Number)));
   } catch {}
 });
 
 home();
+window.HarveyCloud?.recoverIeltsHighlights?.().catch(()=>{});

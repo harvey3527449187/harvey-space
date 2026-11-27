@@ -207,7 +207,7 @@
 
   function readingTranslations(editionNumber,archive){
     return new Promise((resolve,reject)=>{
-      const worker=new Worker(new URL('reading-highlight-import-worker.js?v=1',paperRoot));
+      const worker=new Worker(new URL('reading-highlight-import-worker.js?v=2',paperRoot));
       worker.onmessage=event=>{worker.terminate();resolve(event.data);};
       worker.onerror=event=>{worker.terminate();reject(new Error(event.message));};
       worker.postMessage({editionNumber,archive});

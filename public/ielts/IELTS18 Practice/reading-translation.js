@@ -448,19 +448,22 @@ function reconcileReadingHighlights(save){
       ...mark,from:mark.from+match.start,to:mark.to+match.start,
     })):marks);
     if(!moved.length)continue;
-    storeReadingPaperMarks(moved);
-    delete legacy[key];
-    changed=true;
+    changed=storeReadingPaperMarks(moved)||changed;
   }
   if(changed)save?.();
 }
 
 function storeReadingPaperMarks(marks){
   attempt.textMarks??={};
+  let changed=false;
   for(const {page,...mark} of marks){
     const saved=attempt.textMarks[page]??=[];
-    if(!saved.some(entry=>entry.line===mark.line && entry.from===mark.from && entry.to===mark.to))saved.push(mark);
+    if(!saved.some(entry=>entry.line===mark.line && entry.from===mark.from && entry.to===mark.to)){
+      saved.push(mark);
+      changed=true;
+    }
   }
+  return changed;
 }
 
 function readingChinesePairs(row){

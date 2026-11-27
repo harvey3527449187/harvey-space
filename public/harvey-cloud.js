@@ -30,9 +30,26 @@
       keys.every((key) => Object.hasOwn(b, key) && same(a[key], b[key]));
   }
 
+  const ieltsMarkFields = new Set(['marks','textMarks','readingTranslationMarks','transcriptMarks','transcriptChineseMarks']);
+  const ieltsModule = module => /^ielts(?:17|18|19)$/.test(module);
+  const markId = mark => JSON.stringify(Object.entries(mark).sort(([a],[b]) => a.localeCompare(b)));
+
+  function mergeMarkTree(base, remote, local, keepDeleted=false) {
+    if ([base,remote,local].some(Array.isArray)) {
+      const index = list => new Map((Array.isArray(list) ? list : []).filter(isRecord).map(mark => [markId(mark), mark]));
+      const earlier=index(base), left=index(remote), right=index(local);
+      for (const [id,mark] of right) if (keepDeleted || !earlier.has(id) || left.has(id)) left.set(id,mark);
+      if (!keepDeleted) for (const id of earlier.keys()) if (!right.has(id)) left.delete(id);
+      return [...left.values()];
+    }
+    const keys = new Set([...Object.keys(remote||{}), ...Object.keys(local||{})]);
+    return Object.fromEntries([...keys].map(key => [key,mergeMarkTree(field(base,key),field(remote,key),field(local,key),keepDeleted)]));
+  }
+
   function merge(base, remote, local, module, path = []) {
     if (same(local, base) || same(local, remote)) return remote;
     if (same(remote, base)) return local;
+    if (ieltsModule(module) && ieltsMarkFields.has(path[1])) return mergeMarkTree(base,remote,local);
     if (module === "vocabulary" && path[0] === "words" && path.length === 2 && isRecord(local) && isRecord(remote)) {
       return (local.updatedAt || 0) > (remote.updatedAt || 0) ? local : remote;
     }
@@ -118,9 +135,39 @@
     try { return stored(connectionKey); } catch { return undefined; }
   }
 
+  function restoreArchiveMarks(current,copy){
+    const recovered={...current};
+    for(const [id,record] of Object.entries(copy||{})){
+      const fields=Object.keys(record||{}).filter(field=>ieltsMarkFields.has(field) && Object.keys(record[field]||{}).length);
+      if(!fields.length)continue;
+      const next={...(recovered[id]||{answers:{},flags:{},notes:{},current:1,submitted:false,resetPending:true})};
+      for(const field of fields)next[field]=mergeMarkTree(undefined,record[field],next[field],true);
+      recovered[id]=next;
+    }
+    return recovered;
+  }
+
+  async function recoverIeltsHighlights(onlyModule){
+    const settings=connection();
+    if(!settings?.owner)return;
+    const targets=onlyModule?[onlyModule]:Object.keys(modules).filter(ieltsModule);
+    await Promise.all(targets.map(async module=>{
+      const key=settings.url+'/'+settings.owner+'/'+module;
+      const marker=key+'/highlight-recovery-v1';
+      if(await baseline(marker))return;
+      const copy=await baseline(key);
+      if(!isRecord(copy))return;
+      const current=stored(modules[module])||{};
+      const recovered=restoreArchiveMarks(current,copy);
+      if(!same(current,recovered))writeLocal(module,recovered);
+      await baseline(marker,true);
+    }));
+  }
+
   window.HarveyCloud = {
     changed() { window.dispatchEvent(new Event("harvey-cloud-change")); },
     enabled() { return Boolean(connection()?.owner); },
+    recoverIeltsHighlights,
   };
   if (window !== window.top) return;
 
@@ -173,7 +220,10 @@
 
   async function syncModule(api, settings, session, module, initialRow) {
     const key = settings.url + "/" + session.user.id + "/" + module;
+    if(ieltsModule(module)) await recoverIeltsHighlights(module).catch(()=>{});
     const previous = await baseline(key);
+    const recoveryKey=key+'/highlight-cloud-recovery-v1';
+    const recovering=ieltsModule(module) && !(await baseline(recoveryKey));
     const captured = normalize(module, stored(modules[module]));
     // Missing browser data after a storage reset must not delete cloud data.
     let local = captured === undefined ? previous : captured;
@@ -182,7 +232,10 @@
       .eq("user_id", session.user.id).eq("module", module).maybeSingle();
     for (let attempt = 0; attempt < 4; attempt++) {
       if (module === "vocabulary" && previous === undefined && row) local = withoutStarterWords(local);
-      const data = merge(previous, row?.data, local, module);
+      let data = merge(previous, row?.data, local, module);
+      if(recovering && (data || previous || local || row?.data)){
+        data=restoreArchiveMarks(restoreArchiveMarks(restoreArchiveMarks(data,previous),local),row?.data);
+      }
       if (data === undefined) return;
       if (!same(data, row?.data)) {
         const result = row
@@ -203,6 +256,7 @@
       const combined = merge(captured, data, latest, module);
       if (combined !== undefined && !same(combined, latest)) writeLocal(module, combined);
       await baseline(key, data);
+      if(recovering)await baseline(recoveryKey,true);
       if (combined !== undefined && !same(combined, data)) schedule(100);
       return;
     }

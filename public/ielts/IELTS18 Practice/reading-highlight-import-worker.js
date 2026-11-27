@@ -7,7 +7,7 @@ self.onmessage=({data:{editionNumber,archive}})=>{
   if(![17,18,19].includes(editionNumber))throw new Error('Unsupported IELTS edition');
   const directory=editionNumber===18?'':editionNumber+'/';
   importScripts(directory+'book.js',directory+'data.js',directory+'paper-data.js'+(editionNumber===19?'?v=2':''),
-    editionNumber===19?'19/study-content.js?v=2':'reference-content.js','reading-translation.js?v=6');
+    editionNumber===19?'19/study-content.js?v=2':'reference-content.js','reading-translation.js?v=7');
   const selections=[];
   let skipped=0;
   for(const [key,record] of Object.entries(archive)){
