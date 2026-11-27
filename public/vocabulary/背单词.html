@@ -39,6 +39,11 @@
           <button class="mode-btn active" data-mode="recall" aria-pressed="true">Meaning recall</button>
           <button class="mode-btn" data-mode="spell" aria-pressed="false">Spelling practice</button>
         </div>
+        <div class="vocab-scope">
+          <label><input type="checkbox" id="includePhrases" checked> Include phrases</label>
+          <button type="button" class="btn gray" id="importIelts" disabled>Import IELTS reading highlights</button>
+          <span id="ieltsImportStatus" role="status"></span>
+        </div>
         <div id="studyView"></div>
       </div>
       <aside class="study-rail study-shortcuts" aria-labelledby="shortcuts-title">
@@ -151,6 +156,7 @@
   </dialog>
 
 <script src="../harvey-cloud.js"></script>
+<script src="ielts-vocabulary.js"></script>
 <script>
 (function(){
   "use strict";
@@ -368,7 +374,7 @@
 
   /* ============ 工具 ============ */
   var $ = function(id){ return document.getElementById(id); };
-  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/'/g,"&#39;").replace(/"/g,"&quot;"); }
   function pad(n){ return (n<10?"0":"")+n; }
   function todayStr(){ var d=new Date(); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
   function fmtDate(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
@@ -380,6 +386,7 @@
   /* ============ 状态 ============ */
   var state = null;
   var mode = "recall";
+  var includePhrases = true;
   var queue = [], qIndex = 0;
   var recallDeck = [];
   var retryQueue = [];
@@ -474,6 +481,65 @@
     if(added || updated) save();
     var nonempty=text.split(/\r?\n/).filter(function(x){return x.trim();}).length;
     return {added:added, updated:updated, duplicates:duplicates, skipped:Math.max(0,nonempty-items.length), keys:keys};
+  }
+
+  function isPhrase(key){ return /\s/.test(key.trim()); }
+  function studyKeys(){ return Object.keys(state.words).filter(function(key){ return includePhrases || !isPhrase(key); }); }
+
+  function addIeltsEntries(items){
+    var added = [], changed = false;
+    items.forEach(function(item){
+      var word = Object.hasOwn(state.words,item.word) ? state.words[item.word] : null;
+      if(!word){
+        word = state.words[item.word] = defaultWord(item.def,item.example);
+        word.updatedAt = 2;
+        word.word = item.word;
+        word.readingSource = item.source;
+        added.push(item.word);
+        changed = true;
+        return;
+      }
+      var updated = false;
+      if(!word.def && item.def){ word.def = item.def; updated = true; }
+      if(!word.example && item.example){ word.example = item.example; word.exampleSource = "saved"; updated = true; }
+      if(!word.readingSource){ word.readingSource = item.source; updated = true; }
+      if(updated) changed = true;
+    });
+    if(changed) save();
+    return added;
+  }
+
+  function addReadingPhrases(){
+    if(!window.IeltsVocabulary) return;
+    addIeltsEntries(window.IeltsVocabulary.phrases);
+  }
+
+  var pendingHighlightImport = false;
+  async function importIeltsHighlights(automatic){
+    var btn = $("importIelts"), status = $("ieltsImportStatus");
+    if(!window.IeltsVocabulary) return;
+    if(btn.disabled){ pendingHighlightImport = true; return; }
+    btn.disabled = true;
+    if(!automatic) status.textContent = "Reading saved highlights…";
+    try {
+      var result = await window.IeltsVocabulary.savedHighlights(localStorage);
+      var items = Array.from(new Map(result.items.map(function(item){ return [item.word,item]; })).values());
+      var added = addIeltsEntries(items);
+      if(automatic && !added.length){ renderLibrary($("search").value); return; }
+      status.textContent = items.length
+        ? "Added " + added.filter(function(key){ return !isPhrase(key); }).length + " words and " + added.filter(isPhrase).length + " phrases. " + (items.length-added.length) + " already in your library."
+        : result.skipped || result.failed.length ? "No highlights could be imported." : "No saved reading highlights found in this browser. Open the browser where you highlighted or sync with Harvey Cloud.";
+      if(result.skipped) status.textContent += " Skipped " + result.skipped + " unsupported selections.";
+      if(result.failed.length) status.textContent += " Could not read IELTS " + result.failed.join(", ") + ". Try again.";
+      if(added.length) startStudy();
+      renderLibrary($("search").value);
+      if(state.settings.autoEnrich && added.length) enrichWords(added);
+    } catch(e){
+      if(!automatic) status.textContent = "Could not import reading highlights. Try again.";
+    } finally {
+      btn.disabled = false;
+      if(pendingHighlightImport){ pendingHighlightImport = false; importIeltsHighlights(true); }
+    }
   }
 
   /* ============ 联网词典：音标、发音、英文释义、中文翻译 ============ */
@@ -625,6 +691,7 @@
   }
   function needsEnrichment(key){
     var w=state.words[key];
+    if(w && isPhrase(key) && w.readingSource) return !w.def;
     return w&&(!phon(key)||!w.def||!dictionaryCache[key]);
   }
   function translatedGloss(sense){
@@ -637,6 +704,12 @@
     }).catch(function(){return text;});
   }
   function lookupWord(key,refresh){
+    if(isPhrase(key) && state.words[key]?.readingSource){
+      return translatedGloss({text:key}).then(function(def){
+        if(def===key && !state.words[key]?.def) throw new Error("No phrase definition found");
+        return {phonetic:"",audio:"",def:def===key?"":def};
+      });
+    }
     return getDictionary(key,refresh).then(function(entry){
       var phonetic=entry.phonetic||phon(key);
       var pronunciation=phonetic?Promise.resolve(phonetic):datamuseWord(key).then(function(d){return d.phonetic;}).catch(function(){return "";});
@@ -901,7 +974,7 @@
     var today = todayStr();
     var newPerDay = state.settings.newPerDay || 100;
     var review = [], fresh = [];
-    Object.keys(state.words).forEach(function(key){
+    studyKeys().forEach(function(key){
       var w = state.words[key];
       if(w.due <= today){
         if(w.repetition === 0 && !w.lastReview) fresh.push(key);
@@ -918,13 +991,14 @@
   }
   function buildExtra(n){
     var today = todayStr(), extra = [];
-    var fresh = Object.keys(state.words).filter(function(k){
+    var keys = studyKeys();
+    var fresh = keys.filter(function(k){
       var w = state.words[k]; return w.repetition === 0 && !w.lastReview;
     }).sort(function(a,b){ return state.words[a].added.localeCompare(state.words[b].added); });
     extra = fresh.slice(0, n);
     if(extra.length < n){
-      var upcoming = Object.keys(state.words).filter(function(k){
-        return state.words[k].due > today;
+      var upcoming = keys.filter(function(k){
+        return state.words[k].due > today && !extra.includes(k);
       }).sort(function(a,b){ return state.words[a].due.localeCompare(state.words[b].due); });
       for(var i=0; i<upcoming.length && extra.length<n; i++) extra.push(upcoming[i]);
     }
@@ -942,9 +1016,9 @@
   function renderDashboard(){
     var el=$("dashboard"); if(!el) return;
     var today=todayStr(), due=0, fresh=0, mastered=0;
-    Object.keys(state.words).forEach(function(k){ var w=state.words[k]; if(w.repetition===0&&!w.lastReview) fresh++; else { if(w.due<=today) due++; if(w.interval>=21) mastered++; } });
+    studyKeys().forEach(function(k){ var w=state.words[k]; if(w.repetition===0&&!w.lastReview) fresh++; else { if(w.due<=today) due++; if(w.interval>=21) mastered++; } });
     el.innerHTML='<div class="dash-item"><b>'+due+'</b><span>Due today</span></div>'+ 
-      '<div class="dash-item"><b>'+fresh+'</b><span>New words</span></div>'+ 
+      '<div class="dash-item"><b>'+fresh+'</b><span>New '+(includePhrases?'items':'words')+'</span></div>'+
       '<div class="dash-item"><b>'+mastered+'</b><span>Mastered</span></div>'+ 
       '<div class="dash-item"><b class="streak">'+streakDays()+'</b><span>Day streak</span></div>';
   }
@@ -1042,7 +1116,7 @@
   function quizChoices(key){
     var correct=(state.words[key].def||"No definition").trim(), pos=primaryPos(correct), seen={};
     seen[correct.replace(/\s+/g,"").toLowerCase()]=1;
-    var pool=Object.keys(state.words).filter(function(k){
+    var pool=studyKeys().filter(function(k){
       var d=(state.words[k].def||"").trim(), id=d.replace(/\s+/g,"").toLowerCase();
       if(k===key||!d||seen[id]) return false; seen[id]=1; return true;
     }).map(function(k){
@@ -1223,7 +1297,7 @@
     var pct = Math.round(qIndex / queue.length * 100);
 
     var boxes = "";
-    for(var i=0;i<len;i++) boxes += '<span class="box" data-i="'+i+'"></span>';
+    for(var i=0;i<len;i++) boxes += '<span class="box'+(target[i]===" "?' space':'')+'" data-i="'+i+'"></span>';
 
     v.innerHTML =
       '<div class="progress">' +
@@ -1231,8 +1305,8 @@
         '<span class="num">'+remain+' remaining</span>' +
       '</div>' +
       '<div class="card">' +
-        '<div class="tag">Spell the word</div>' +
-        '<div class="def-big">'+(w.def ? formatDef(w.def) : 'No definition')+'</div>' +
+        '<div class="tag">Spell the '+(isPhrase(key)?'phrase':'word')+'</div>' +
+        '<div class="def-big">'+(w.def ? formatDef(w.def) : w.readingSource ? 'Listen and type what you hear' : 'No definition')+'</div>' +
         '<button class="audio-btn" id="audioBtn" title="Listen to pronunciation" aria-label="Listen to pronunciation">Listen</button>' +
         (phonetic ? '<div class="phonetic" id="spellPhon" style="visibility:hidden">'+esc(phonetic)+'</div>' : '') +
         '<div class="boxes" id="boxes">'+boxes+'</div>' +
@@ -1376,10 +1450,10 @@
       else { status="Scheduled"; cls="later"; }
       var due = (w.repetition === 0 && !w.lastReview) ? "—" : w.due;
       var ph = phon(key);
-      var look=enrichStatus[key]||((!w.def||!ph)?"idle":""), lookText={loading:"Looking up…",success:"Looked up",failed:"Lookup failed. Retry",idle:"Lookup pending"}[look]||"";
+      var look=enrichStatus[key]||((!w.def||(!ph&&!(isPhrase(key)&&w.readingSource)))?"idle":""), lookText={loading:"Looking up…",success:"Looked up",failed:"Lookup failed. Retry",idle:"Lookup pending"}[look]||"";
       html += '<tr>' +
         '<td class="w-cell"><button type="button" class="dictionary-word" data-dictionary="'+esc(key)+'" aria-label="Look up '+esc(display)+'">'+esc(display)+'</button>'+(ph?'<span class="ph">'+esc(ph)+'</span>':'')+'</td>' +
-        '<td>'+esc(w.def || '—')+(lookText?'<span class="lookup-state '+look+'">'+lookText+'</span>':'')+'</td>' +
+        '<td>'+esc(w.def || '—')+(lookText?'<span class="lookup-state '+look+'">'+lookText+'</span>':'')+(w.readingSource?'<small class="reading-source">'+esc(w.readingSource)+'</small>':'')+'</td>' +
         '<td><span class="pill '+cls+'">'+status+'</span></td>' +
         '<td>'+esc(due)+'</td>' +
         '<td><div class="row-actions"><button class="icon-btn" data-enrich="'+esc(key)+'" aria-label="Retry lookup" title="Retry lookup">↻</button><button class="icon-btn" data-say="'+esc(key)+'" aria-label="Listen to pronunciation" title="Listen to pronunciation">Listen</button><button class="icon-btn" data-edit="'+esc(key)+'" aria-label="Edit word" title="Edit word">Edit</button></div></td>' +
@@ -1457,6 +1531,13 @@
 
   /* ============ 事件 ============ */
   function bindEvents(){
+    $("importIelts").disabled = !window.IeltsVocabulary;
+    $("importIelts").onclick = function(){ importIeltsHighlights(false); };
+    $("includePhrases").onchange = function(){
+      includePhrases = this.checked;
+      try { localStorage.setItem("vocab_include_phrases", String(includePhrases)); } catch(e){}
+      startStudy();
+    };
     $("dictionaryClose").onclick=function(){$("dictionaryDialog").close();};
     $("quickAddBtn").onclick=openQuickAdd;
     $("quickClose").onclick=closeQuickAdd;
@@ -1549,6 +1630,7 @@
     $("resetBtn").onclick = function(){
       if(confirm("Reset all study progress? This cannot be undone.")){
         state = freshState(); seedFrom(SEED); save();
+        addReadingPhrases();
         startStudy(); renderLibrary("");
         $("importResult").textContent = "Study progress reset.";
       }
@@ -1584,7 +1666,7 @@
         if(e.key === "Enter" && window._spellNext){ e.preventDefault(); window._spellNext(); }
         return;
       }
-      if(e.target&&e.target.id==="jumpWord") return;
+      if(e.target?.matches("input, select, textarea") || (e.code==="Space"&&e.target?.closest(".vocab-scope"))) return;
       if(e.key>="1"&&e.key<="4"&&window._quizPick){ e.preventDefault(); window._quizPick(parseInt(e.key,10)-1); }
       else if(e.key==="Enter"&&window._quizNext){ e.preventDefault(); window._quizNext(); }
       else if(e.key==="ArrowLeft"&&window._quizPrev){ e.preventDefault(); window._quizPrev(); }
@@ -1608,10 +1690,13 @@
   }
   function afterLoad(){
     var repaired=migrateState();
+    addReadingPhrases();
     var syncCfg=getSyncConfig();
     $("syncUrl").value=syncCfg.url||""; $("syncKey").value=syncCfg.key||""; $("syncId").value=syncCfg.id||"";
     if(validSyncConfig(syncCfg)) showSyncState(syncCfg.lastSync ? "Last synced "+new Date(syncCfg.lastSync).toLocaleString() : "Ready for the first sync",!!syncCfg.lastSync);
     try { mode = localStorage.getItem("vocab_mode") || "recall"; } catch(e){ mode = "recall"; }
+    try { includePhrases = localStorage.getItem("vocab_include_phrases") !== "false"; } catch(e){}
+    $("includePhrases").checked = includePhrases;
     if(mode !== "recall" && mode !== "spell") mode = "recall";
     document.querySelectorAll(".mode-btn").forEach(function(b){
       var active = b.getAttribute("data-mode") === mode;
@@ -1623,6 +1708,7 @@
     startStudy(); renderLibrary("");
     updateFolderUI();
     bindEvents();
+    importIeltsHighlights(true);
     if(repaired) save();
     if(state.settings.autoEnrich && phoneticRepairKeys.length) enrichWords(phoneticRepairKeys.slice());
     if(validSyncConfig(syncCfg) && !window.HarveyCloud?.enabled()) cloudSyncNow(true).catch(function(){});
@@ -1659,11 +1745,16 @@
   }
 
   window.addEventListener("storage",function(event){
+    if(state && /^cambridge-ielts(?:17|18|19)-attempts-v1$/.test(event.key)){
+      importIeltsHighlights(true);
+      return;
+    }
     if(event.key!==LS_KEY || !state || !event.newValue) return;
     var next=tryParse(event.newValue);
     if(!next || !next.words) return;
     state=next;
     migrateState();
+    addReadingPhrases();
     idbSet("state",JSON.stringify(state));
     $("newPerDay").value=state.settings.newPerDay;
     $("autoEnrich").checked=state.settings.autoEnrich;
