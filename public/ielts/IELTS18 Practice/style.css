@@ -14,7 +14,7 @@ dialog{width:min(560px,calc(100vw - 24px));border:1px solid var(--line);border-r
 .paper-line{position:absolute;display:block;z-index:2;white-space:pre;transform-origin:left top;line-height:1.04;user-select:text;cursor:text}
 .workspace:is(.reading,.listening) :is(.paper,.paper-line){-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
 .paper-line.bold,.paper-line.badge{font-weight:700}.paper-line.badge{color:#fff;background:#3d4241;box-shadow:0 0 0 1.5cqw #3d4241;letter-spacing:.03em}
-.paper-line mark,.part-script mark{color:inherit;background:#ffdf57;border-radius:1px}
+.paper-line mark,.part-script mark,.reading-translation-dialog [data-reference-mark] mark{color:inherit;background:#ffdf57;border-radius:1px}
 .paper-line::selection,.paper-line *::selection{background:#a9ccfa;color:#171c23}
 .paper .paper-figure{position:absolute;z-index:1;object-fit:contain;display:block}
 .paper-rule{position:absolute;background:#8a8d91;pointer-events:none}
