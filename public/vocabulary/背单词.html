@@ -951,17 +951,6 @@
 
   /* ============ SM-2 复习 ============ */
   function review(key, grade){
-    if(dailyPlan.earlyKeys.includes(key)){
-      if(grade > 0 && !dailyPlan.earlyDone.includes(key)){
-        dailyPlan.earlyDone.push(key);
-        saveDailyPlan();
-        var date = todayStr();
-        state.activity ??= {};
-        state.activity[date] = (state.activity[date]||0) + 1;
-        save();
-      }
-      return;
-    }
     var w = state.words[key], today = todayStr();
     var alreadyMissedToday = w.lastReview === today && w.due <= today;
     w.lastReview = today;
@@ -1009,7 +998,7 @@
     var scope = studyKeys();
     var early = new Set(dailyPlan.earlyKeys);
     var eligible = scope.filter(function(key){ return words[key].due <= today && !early.has(key); });
-    var touched = new Set(Object.keys(words).filter(function(key){ return words[key].lastReview === today; }));
+    var touched = new Set(Object.keys(words).filter(function(key){ return words[key].lastReview === today && !early.has(key); }));
     var saved = new Set(dailyPlan.keys);
     var available = Math.max(0,dailyLimit+dailyPlan.extraCount-touched.size);
     var due = eligible.filter(function(key){ return !touched.has(key) && !saved.has(key); });
@@ -1037,7 +1026,11 @@
     saveDailyPlan();
     var misses = eligible.filter(function(key){ return touched.has(key); });
     var scopeKeys = new Set(scope), earlyDone = new Set(dailyPlan.earlyDone);
-    return planned.concat(added,misses,dailyPlan.earlyKeys.filter(function(key){ return scopeKeys.has(key) && !earlyDone.has(key); }));
+    var earlyPending = dailyPlan.earlyKeys.filter(function(key){
+      if(!scopeKeys.has(key) || earlyDone.has(key)) return false;
+      return words[key].lastReview !== today || words[key].due <= today;
+    });
+    return planned.concat(added,misses,earlyPending);
   }
 
   /* ============ 渲染 ============ */
