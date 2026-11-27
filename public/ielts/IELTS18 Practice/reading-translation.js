@@ -327,9 +327,10 @@ function readingReferenceRows(part,blocks){
   const urban=edition.number===18 && testNumber===1 && part===0;
   return blocks.map(({text},i)=>{
     const english=cleanReadingEnglish(text);
-    if(!urban)return {english,chinese:authored[i]||''};
+    const key='passage:'+part+':paragraph:'+i;
+    if(!urban)return {key,english,chinese:authored[i]||''};
     const sentences=readingSentences(text);
-    return {english,chinese:sentences.map(urbanFarmingTranslation).filter(Boolean).join('')};
+    return {key,english,chinese:sentences.map(urbanFarmingTranslation).filter(Boolean).join('')};
   });
 }
 
@@ -375,6 +376,7 @@ function showReadingSelection(selection){
   const pages=[...new Set(selection.lines.map(line=>Number(line.page)))];
   const questionPages=pages.filter(page=>examQuestionPages.has(page));
   const rows=questionPages.map(page=>({
+    key:'question:'+page,
     label:'Question page '+(page-edition.paperOffset),
     chinese:referenceForTest().questions?.[page]||'',
   }));
@@ -388,7 +390,7 @@ function showReadingSelection(selection){
       const row=references[index];
       const exact=sentences.map(sentence=>exactReadingReference(part,sentence));
       if(exact.length && exact.every(Boolean)){
-        rows.push(...exact.map((chinese,i)=>({english:sentences[i],chinese})));
+        rows.push(...exact.map((chinese,i)=>({key:row.key+':sentence:'+sentences[i],english:sentences[i],chinese})));
       }else{
         rows.push({...row,label:'Paragraph in context'});
       }
@@ -403,6 +405,7 @@ function showQuestionReference(){
   if(!selectionStudyAllowed())return;
   const pages=section==='reading'?data().reading[partFor(current)][1].map(([page])=>page):data().listening[pageIndex];
   const rows=pages.map(page=>({
+    key:'question:'+page,
     label:'Question page '+(page-edition.paperOffset),
     chinese:referenceForTest().questions?.[page]||'',
   }));
@@ -427,17 +430,28 @@ function studyNotesHtml(text,context=''){
       '<p>No annotated phrase in this selection.</p>')+'</section>';
 }
 
+function referenceTextHtml(tag,className,key,language,text){
+  const id=key+':'+language;
+  const marks=attempt?.readingTranslationMarks?.[id]||[];
+  return '<'+tag+' class="'+className+'" lang="'+language+'" data-reference-mark="'+esc(id)+'">'+
+    formatHighlightedText(text,marks)+'</'+tag+'>';
+}
+
 function studyReferenceRowsHtml(rows){
   const unavailable='<p class="reference-unavailable">A reference translation for this section is not available yet.</p>';
   if(!rows.length)return unavailable;
-  return rows.map(({label,english,chinese})=>'<section class="reading-translation-pair">'+
+  return rows.map(({key,label,english,chinese})=>'<section class="reading-translation-pair">'+
     (label?'<h4>'+esc(label)+'</h4>':'')+
-    (english?'<p class="translation-english" lang="en">'+esc(english)+'</p>':'')+
-    (chinese?'<p class="translation-chinese" lang="zh-CN">'+esc(chinese)+'</p>':unavailable)+'</section>').join('');
+    (english?referenceTextHtml('p','translation-english',key,'en',english):'')+
+    (chinese?referenceTextHtml('p','translation-chinese',key,'zh-CN',chinese):unavailable)+'</section>').join('');
 }
 
 function studyReferenceHtml(rows,{text='',context=''}={}){
-  return (text?'<div class="selection-reference"><span>Selected text</span><blockquote lang="en">'+esc(text)+'</blockquote></div>':'')+
+  const tools=section==='reading'?'<div class="reference-mark-tools" role="group" aria-label="Translation highlights">'+
+    '<button type="button" id="reference-highlight" disabled>Highlight selection</button>'+
+    '<button type="button" id="reference-undo" disabled>Undo highlight</button></div>':'';
+  return tools+(text?'<div class="selection-reference"><span>Selected text</span>'+
+    referenceTextHtml('blockquote','','selection:'+text,'en',text)+'</div>':'')+
     '<div class="reference-layout'+(text?' has-notes':'')+'">'+
     '<section class="reference-translation"><h3>Reference translation</h3>'+studyReferenceRowsHtml(rows)+'</section>'+
     studyNotesHtml(text,context)+'</div>';
@@ -447,5 +461,66 @@ function openStudyReference(title,rows,options){
   show(title,studyReferenceHtml(rows,options),[['Close',closeDialog]]);
   dialog.classList.add('study-dialog','reading-translation-dialog');
   dialog.scrollTop=0;
+  installReferenceHighlights();
 }
+
+function installReferenceHighlights(){
+  const highlight=dialog.querySelector('#reference-highlight');
+  referenceSelectionChanged=undefined;
+  if(!highlight)return;
+  const undo=dialog.querySelector('#reference-undo');
+  const blocks=[...dialog.querySelectorAll('[data-reference-mark]')];
+  const saved=attempt.readingTranslationMarks??={};
+  const keyOf=block=>block.dataset.referenceMark;
+  const latestBatch=()=>Math.max(0,...blocks.flatMap(block=>(saved[keyOf(block)]||[]).map(mark=>mark.batch||0)));
+  const selection=()=>{
+    const current=window.getSelection();
+    if(!current?.rangeCount || current.isCollapsed)return [];
+    const range=current.getRangeAt(0);
+    if(!blocks.some(block=>block.contains(range.startContainer)) ||
+       !blocks.some(block=>block.contains(range.endContainer)))return [];
+    return blocks.flatMap(block=>{
+      const offsets=selectedTextOffsets(range,block);
+      return offsets?[{block,...offsets}]:[];
+    });
+  };
+  const refresh=()=>{
+    highlight.disabled=!selection().length;
+    undo.disabled=!latestBatch();
+  };
+  const repaint=block=>{block.innerHTML=formatHighlightedText(block.textContent,saved[keyOf(block)]||[]);};
+  highlight.onpointerdown=undo.onpointerdown=event=>event.preventDefault();
+  highlight.onclick=()=>{
+    const spans=selection();
+    if(!spans.length)return;
+    const batch=Math.max(Date.now(),latestBatch()+1);
+    window.getSelection()?.removeAllRanges();
+    for(const {block,from,to} of spans){
+      (saved[keyOf(block)]??=[]).push({from,to,batch});
+      repaint(block);
+    }
+    put();
+    refresh();
+  };
+  undo.onclick=()=>{
+    const batch=latestBatch();
+    if(!batch)return;
+    for(const [key,marks] of Object.entries(saved)){
+      if(!marks.some(mark=>mark.batch===batch))continue;
+      const remaining=marks.filter(mark=>mark.batch!==batch);
+      if(remaining.length)saved[key]=remaining;
+      else delete saved[key];
+      blocks.filter(block=>keyOf(block)===key).forEach(repaint);
+    }
+    put();
+    refresh();
+  };
+  referenceSelectionChanged=refresh;
+  refresh();
+}
+
+let referenceSelectionChanged;
+document.addEventListener('selectionchange',()=>{
+  if(dialog.open && dialog.classList.contains('reading-translation-dialog')) referenceSelectionChanged?.();
+});
 

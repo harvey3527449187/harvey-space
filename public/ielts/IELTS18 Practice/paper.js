@@ -225,7 +225,7 @@ function changeHighlightButton() {
   const selectionReady=Boolean(savedTextSelection && savedTextSelection.attempt===attempt && savedTextSelection.area.isConnected);
   const button=document.querySelector('#mark');
   if(button)button.disabled=!selectionReady;
-  const copy=document.querySelector('#copy-listening-selection');
+  const copy=document.querySelector('#copy-paper-selection');
   if(copy){
     copy.disabled=!selectionReady;
     copy.textContent='Copy selection';
@@ -294,23 +294,27 @@ function undoTextHighlight() {
   put();
 }
 
+function paperCopyAllowed(){
+  return section==='reading' || section==='listening';
+}
+
 function installTextHighlightControl() {
   const button=document.querySelector('#mark');
   button.onpointerdown=event=>event.preventDefault();
   button.onclick=applyTextHighlight;
-  if(section==='listening'){
+  if(paperCopyAllowed()){
     const copy=document.createElement('button');
-    copy.id='copy-listening-selection';
+    copy.id='copy-paper-selection';
     copy.type='button';
     copy.onpointerdown=event=>event.preventDefault();
-    copy.onclick=()=>copyListeningSelection(copy);
+    copy.onclick=()=>copyPaperSelection(copy);
     button.after(copy);
   }
   document.querySelector('#undo').onclick=undoTextHighlight;
   clearPaperSelection();
 }
 
-async function copyListeningSelection(button) {
+async function copyPaperSelection(button) {
   const selected=selectionInPaper()||savedTextSelection;
   if(!selected || selected.attempt!==attempt || !selected.area.isConnected)return;
   const text=selected.lines.map(({page,line,from,to})=>
@@ -346,13 +350,13 @@ document.addEventListener('selectionchange',rememberSelection);
 document.addEventListener('pointerup',event=>{
   if(!event.target.closest?.('#work .paper') || !selectionInPaper())return;
   rememberSelection();
-  if(section==='listening' && event.pointerType==='touch')return;
+  if(paperCopyAllowed() && event.pointerType==='touch')return;
   const {left,bottom}=savedTextSelection.rect;
   showHighlightMenu(left,bottom+7);
 });
 document.addEventListener('contextmenu',event=>{
   if(!event.target.closest?.('#work .paper') || !selectionInPaper())return;
-  if(section==='listening')return;
+  if(paperCopyAllowed())return;
   event.preventDefault();
   rememberSelection();
   showHighlightMenu(event.clientX,event.clientY);

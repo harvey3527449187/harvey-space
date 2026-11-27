@@ -25,6 +25,9 @@
 #text-highlight-menu button{padding:7px 9px;font-size:13px}
 #text-highlight-menu [data-highlight]{background:#fff4c3;border-color:#efdb90}
 #dialog.reading-translation-dialog{width:min(1050px,calc(100vw - 24px))}
+.reference-mark-tools{position:sticky;top:0;z-index:4;display:flex;flex-wrap:wrap;gap:6px;padding:6px 0;background:#fff}
+.reference-mark-tools button{min-height:44px}
+.reading-translation-dialog [data-reference-mark]{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
 .reference-layout{display:grid;gap:14px;min-width:0}
 .reference-layout.has-notes{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start}
 .reference-translation h3,.reading-language-notes h3{margin:0 0 .55rem;font-size:1rem}
