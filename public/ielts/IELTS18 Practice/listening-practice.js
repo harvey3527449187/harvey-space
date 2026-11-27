@@ -3,9 +3,14 @@
 const listeningAudioEvents = ['loadedmetadata', 'durationchange', 'emptied', 'timeupdate',
   'seeking', 'seeked', 'play', 'pause', 'ended', 'error'];
 
-function listeningSkipButtons() {
-  return '<div class="listening-skip" role="group" aria-label="Skip audio">' +
+function listeningPlayButton() {
+  return '<button type="button" data-audio-play disabled>Play</button>';
+}
+
+function listeningSkipButtons(includePlay = false) {
+  return '<div class="listening-skip" role="group" aria-label="' + (includePlay ? 'Playback controls' : 'Skip audio') + '">' +
     '<button type="button" data-audio-offset="-5" aria-label="Back 5 seconds" title="Back 5 seconds" disabled>−5 s</button>' +
+    (includePlay ? listeningPlayButton() : '') +
     '<button type="button" data-audio-offset="5" aria-label="Forward 5 seconds" title="Forward 5 seconds" disabled>+5 s</button></div>';
 }
 
@@ -13,7 +18,7 @@ function listeningActions() {
   return '<div class="listening-actions" aria-label="Listening practice">' +
     '<span id="practice-part" class="practice-part"></span>' +
     '<div id="practice-player" class="practice-player"' + (full ? ' hidden' : '') + '>' +
-    (full ? '' : listeningSkipButtons()) + '</div>' +
+    (full ? '' : listeningSkipButtons(true)) + '</div>' +
     '<div class="practice-links"><button id="part-transcript" type="button">Transcript</button>' +
     '<button id="part-translation" type="button">Chinese translation</button>'+
     '<button id="part-check" type="button">Check answers</button></div></div>';
@@ -25,7 +30,7 @@ function installListeningActions() {
   audio.controls=!full;
   audio.hidden=full;
   if (!full) {
-    bindListeningSkips(player);
+    bindListeningButtons(player);
     for (const event of listeningAudioEvents) {
       audio.addEventListener(event, syncListeningControls);
     }
@@ -35,9 +40,12 @@ function installListeningActions() {
   document.querySelector('#part-check').onclick=()=>showPartAnswers(pageIndex);
 }
 
+function canPlayListeningAudio() {
+  return !full && audio.hasAttribute('src') && !audio.error;
+}
+
 function canSeekListeningAudio() {
-  return !full && audio.hasAttribute('src') && !audio.error &&
-    Number.isFinite(audio.duration) && audio.duration > 0;
+  return canPlayListeningAudio() && Number.isFinite(audio.duration) && audio.duration > 0;
 }
 
 function seekListeningAudio(position) {
@@ -46,7 +54,11 @@ function seekListeningAudio(position) {
   syncListeningControls();
 }
 
-function bindListeningSkips(player) {
+function bindListeningButtons(player) {
+  player.querySelector('[data-audio-play]').onclick = () => {
+    if (audio.paused || audio.ended) startAudio();
+    else audio.pause();
+  };
   player.querySelectorAll('[data-audio-offset]').forEach(button => {
     button.onclick = () => seekListeningAudio(audio.currentTime + Number(button.dataset.audioOffset));
   });
@@ -57,24 +69,30 @@ function formatListeningTime(position) {
   return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
 }
 
+function syncListeningPlayButton(button, enabled) {
+  if (!button) return;
+  button.disabled = !enabled;
+  const label = audio.paused || audio.ended ? 'Play' : 'Pause';
+  if (button.textContent !== label) button.textContent = label;
+}
+
 function syncListeningControls() {
   const ready = canSeekListeningAudio();
+  syncListeningPlayButton(document.querySelector('#practice-player [data-audio-play]'), canPlayListeningAudio());
   document.querySelectorAll('#practice-player [data-audio-offset]').forEach(button => {
     button.disabled = !ready;
   });
   const player = dialog.open && dialog.querySelector('#transcript-player');
   if (!player) return;
 
-  const play = player.querySelector('[data-audio-play]');
   const seek = player.querySelector('[data-audio-seek]');
   const time = player.querySelector('[data-audio-time]');
   const elapsed = formatListeningTime(ready ? audio.currentTime : 0);
   const duration = formatListeningTime(ready ? audio.duration : 0);
-  player.querySelectorAll('button').forEach(button => {
+  player.querySelectorAll('[data-audio-offset]').forEach(button => {
     button.disabled = !ready;
   });
-  const playLabel = audio.paused || audio.ended ? 'Play' : 'Pause';
-  if (play.textContent !== playLabel) play.textContent = playLabel;
+  syncListeningPlayButton(player.querySelector('[data-audio-play]'), ready);
   seek.disabled = !ready;
   seek.max = ready ? audio.duration : 1;
   seek.value = ready ? audio.currentTime : 0;
@@ -85,7 +103,7 @@ function syncListeningControls() {
 function transcriptPlayer() {
   if (full) return '';
   return '<div id="transcript-player" class="transcript-player" role="group" aria-label="Listening player">' +
-    '<button type="button" data-audio-play disabled>Play</button>' + listeningSkipButtons() +
+    listeningPlayButton() + listeningSkipButtons() +
     '<input type="range" class="transcript-seek" data-audio-seek min="0" max="1" step="any" value="0" aria-label="Playback position" disabled>' +
     '<span class="transcript-time" data-audio-time>0:00 / 0:00</span></div>';
 }
@@ -95,11 +113,7 @@ function installTranscriptPlayer() {
   if (!player) return;
   const seek = player.querySelector('[data-audio-seek]');
   seek.oninput = () => seekListeningAudio(seek.valueAsNumber);
-  player.querySelector('[data-audio-play]').onclick = () => {
-    if (audio.paused || audio.ended) startAudio();
-    else audio.pause();
-  };
-  bindListeningSkips(player);
+  bindListeningButtons(player);
   syncListeningControls();
 }
 
