@@ -20,6 +20,15 @@ let practiceClockStarted = null;
 let pageActive = true;
 
 const getKey = (test, skill, mock=false) => test + '-' + skill + (mock?'-mock':'');
+function applyExamPreferences(){
+  const preferences=attempts.preferences;
+  const sharedZoom=preferences?.zoom?.[section];
+  zoom=[1,1.25,1.55].includes(sharedZoom)?sharedZoom:1;
+  const sharedVolume=preferences?.volume;
+  volume=Number.isFinite(sharedVolume)&&sharedVolume>=0&&sharedVolume<=1?sharedVolume:.75;
+  const control=app.querySelector('.audio-label input');
+  if(control){ control.value=volume; audio.volume=volume; }
+}
 function retainedHighlights(record){
   return Object.fromEntries(['marks','textMarks','readingTranslationMarks','transcriptMarks','transcriptChineseMarks']
     .filter(field=>record?.[field]).map(field=>[field,record[field]]));
@@ -176,7 +185,8 @@ function resume() {
     put();
   }
   if(!attempt.submitted && attempt.deadline && attempt.deadline<=Date.now() && section!=='speaking') return finish(true);
-  current=attempt.current||1; pageIndex=-1; zoom=1;
+  current=attempt.current||1; pageIndex=-1;
+  applyExamPreferences();
   renderExam();
   if(section==='listening' && full && !attempt.submitted) {
     if(attempt.deadline) setSound('Check answers · 2 min');
@@ -214,6 +224,8 @@ function renderExam() {
   document.querySelector('#next').onclick=()=>jump(Math.min(questions(),current+1),true);
   document.querySelector('#zoom').onclick=()=>{
     zoom = zoom===1 ? 1.25 : zoom===1.25 ? 1.55 : 1;
+    ((attempts.preferences??={}).zoom??={})[section]=zoom;
+    put();
     applyZoom();
   };
   installTextHighlightControl();
@@ -226,6 +238,7 @@ function renderExam() {
   installStudySupport();
   if(section==='listening') {
     document.querySelector('input[type=range]').oninput=e=>{audio.volume=volume=Number(e.target.value)};
+    document.querySelector('input[type=range]').onchange=()=>{ (attempts.preferences??={}).volume=volume; put(); };
     document.querySelector('#recover').onclick=()=>{
       if(audio.error && full){playFullListening();return}
       if(audio.error)loadPracticePart(pageIndex);
@@ -604,6 +617,10 @@ window.addEventListener('storage', (event) => {
       linkedReadingHighlights.delete(attempt);
     }
     attempts = activeKey && next[activeKey] ? {...next, [activeKey]: attempt} : next;
+    if(activeKey && next[activeKey] && !dialog.open && app.querySelector('#zoom')){
+      applyExamPreferences();
+      applyZoom();
+    }
     if (!attempt && !dialog.open) home();
     else if (activeKey && !next[activeKey] && !dialog.open) home();
     else if (activeKey && !dialog.open) refreshPaperHighlights(new Set(Object.keys(paperPages).map(Number)));

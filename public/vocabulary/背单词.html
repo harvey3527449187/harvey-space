@@ -154,7 +154,7 @@
     <div id="libraryDictionary"></div>
   </dialog>
 
-<script src="../harvey-cloud.js?v=2"></script>
+<script src="../harvey-cloud.js?v=3"></script>
 <script src="ielts-vocabulary.js?v=4"></script>
 <script>
 (function(){
@@ -1053,15 +1053,17 @@
     });
   }
   function saveDailyPlan(){
-    try { localStorage.setItem(dailyPlanKey,JSON.stringify(dailyPlan)); } catch(e){}
+    state.studyPlan=dailyPlan;
+    save();
   }
 
   function buildQueue(extraCount){
     var today = todayStr();
-    var stored;
-    try { stored = tryParse(localStorage.getItem(dailyPlanKey)); } catch(e){}
-    if(stored?.date === today && Array.isArray(stored.keys)) dailyPlan = stored;
-    if(dailyPlan?.date !== today) dailyPlan = {date:today,keys:[]};
+    var stored=state.studyPlan;
+    if(!stored){
+      try { stored=tryParse(localStorage.getItem(dailyPlanKey)); } catch(e){}
+    }
+    dailyPlan=stored?.date===today && Array.isArray(stored.keys)?JSON.parse(JSON.stringify(stored)):{date:today,keys:[]};
     dailyPlan.extraCount ??= 0;
     dailyPlan.earlyKeys ??= [];
     dailyPlan.earlyDone ??= [];
@@ -1094,7 +1096,7 @@
       dailyPlan.earlyKeys = dailyPlan.earlyKeys.concat(extraEarly);
     }
     dailyPlan.keys = dailyPlan.keys.concat(added);
-    saveDailyPlan();
+    if(JSON.stringify(state.studyPlan)!==JSON.stringify(dailyPlan)) saveDailyPlan();
     var misses = eligible.filter(function(key){ return touched.has(key); });
     var scopeKeys = new Set(scope), earlyDone = new Set(dailyPlan.earlyDone);
     var earlyPending = dailyPlan.earlyKeys.filter(function(key){
@@ -1637,7 +1639,8 @@
     $("importIelts").onclick = function(){ importIeltsHighlights(false); };
     $("includePhrases").onchange = function(){
       includePhrases = this.checked;
-      try { localStorage.setItem("vocab_include_phrases", String(includePhrases)); } catch(e){}
+      state.settings.includePhrases=includePhrases;
+      save();
       startStudy();
     };
     $("dictionaryClose").onclick=function(){$("dictionaryDialog").close();};
@@ -1679,7 +1682,8 @@
           x.setAttribute("aria-pressed", String(x===b));
         });
         mode = b.getAttribute("data-mode");
-        try { localStorage.setItem("vocab_mode", mode); } catch(e){}
+        state.settings.studyMode=mode;
+        save();
         startStudy();
       };
     });
@@ -1750,7 +1754,7 @@
         try{
           var obj = JSON.parse(r.result);
           if(!obj.words) throw 0;
-          state = obj; save(); startStudy(); renderLibrary("");
+          state = obj; migrateState(); applyStudySettings(); save(); startStudy(); renderLibrary("");
           alert("Progress restored.");
         }catch(e){ alert("This file is not a valid progress backup."); }
       };
@@ -1791,22 +1795,32 @@
     if(!raw) return null;
     try { return JSON.parse(raw); } catch(e){ return null; }
   }
+  function applyStudySettings(){
+    mode=state.settings.studyMode==="spell"?"spell":"recall";
+    includePhrases=state.settings.includePhrases!==false;
+    document.querySelectorAll(".mode-btn").forEach(function(b){
+      var active = b.getAttribute("data-mode") === mode;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-pressed", String(active));
+    });
+    $("autoEnrich").checked=state.settings.autoEnrich!==false;
+  }
   function afterLoad(){
     var repaired=migrateState();
     addReadingPhrases();
     var syncCfg=getSyncConfig();
     $("syncUrl").value=syncCfg.url||""; $("syncKey").value=syncCfg.key||""; $("syncId").value=syncCfg.id||"";
     if(validSyncConfig(syncCfg)) showSyncState(syncCfg.lastSync ? "Last synced "+new Date(syncCfg.lastSync).toLocaleString() : "Ready for the first sync",!!syncCfg.lastSync);
-    try { mode = localStorage.getItem("vocab_mode") || "recall"; } catch(e){ mode = "recall"; }
-    try { includePhrases = localStorage.getItem("vocab_include_phrases") !== "false"; } catch(e){}
-    $("includePhrases").checked = includePhrases;
-    if(mode !== "recall" && mode !== "spell") mode = "recall";
-    document.querySelectorAll(".mode-btn").forEach(function(b){
-      var active = b.getAttribute("data-mode") === mode;
-      b.classList.toggle("active", active);
-      b.setAttribute("aria-pressed", String(active));
-    });
-    $("autoEnrich").checked = state.settings.autoEnrich !== false;
+    try {
+      var legacyMode=localStorage.getItem("vocab_mode"), legacyPhrases=localStorage.getItem("vocab_include_phrases");
+      if(state.settings.studyMode===undefined && (legacyMode==="recall" || legacyMode==="spell")){
+        state.settings.studyMode=legacyMode; repaired=true;
+      }
+      if(state.settings.includePhrases===undefined && legacyPhrases!==null){
+        state.settings.includePhrases=legacyPhrases!=="false"; repaired=true;
+      }
+    } catch(e){}
+    applyStudySettings();
     startStudy(); renderLibrary("");
     updateFolderUI();
     bindEvents();
@@ -1858,7 +1872,7 @@
     migrateState();
     addReadingPhrases();
     idbSet("state",JSON.stringify(state));
-    $("autoEnrich").checked=state.settings.autoEnrich;
+    applyStudySettings();
     startStudy();
     renderLibrary($("search").value);
   });

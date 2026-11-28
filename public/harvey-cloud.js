@@ -50,9 +50,24 @@
     if (same(local, base) || same(local, remote)) return remote;
     if (same(remote, base)) return local;
     if (ieltsModule(module) && ieltsMarkFields.has(path[1])) return mergeMarkTree(base,remote,local);
-    if (module === "vocabulary" && path[0] === "words" && path.length === 2 && isRecord(local) && isRecord(remote)) {
-      return (local.updatedAt || 0) > (remote.updatedAt || 0) ? local : remote;
+    if (module === "vocabulary" && path[0] === "studyPlan" && path.length === 1 && isRecord(local) && isRecord(remote)) {
+      if (local.date !== remote.date) return local.date > remote.date ? local : remote;
+      const plan = { ...remote, extraCount: Math.max(remote.extraCount || 0, local.extraCount || 0) };
+      for (const key of ["keys", "earlyKeys", "earlyDone"]) plan[key] = [...new Set([...(remote[key] || []), ...(local[key] || [])])];
+      return plan;
     }
+    if (module === "vocabulary" && path[0] === "words" && path.length === 2 && isRecord(local) && isRecord(remote)) {
+      const first = (local.updatedAt || 0) > (remote.updatedAt || 0) ? local : remote;
+      const second = first === local ? remote : local;
+      if (!isRecord(base)) return first;
+      const review = ["lastReview", "repetition", "interval", "due", "lapses", "easiness"];
+      const changed = word => review.some(key => !same(word[key], base[key]));
+      const schedule = changed(second) && !changed(first) ? second : first;
+      const keys = new Set([...Object.keys(first), ...Object.keys(second)]);
+      return Object.fromEntries([...keys].map(key => [key, review.includes(key) ? schedule[key] : same(first[key], base[key]) ? second[key] : first[key]]));
+    }
+    if (module === "vocabulary" && path[0] === "activity" && typeof base === "number" &&
+        typeof local === "number" && typeof remote === "number" && local >= base && remote >= base) return local + remote - base;
     if (module === "vocabulary" && (path[0] === "activity" || path[0] === "learned") &&
         typeof local === "number" && typeof remote === "number") return Math.max(local, remote);
     if (isRecord(local) && isRecord(remote)) {
@@ -79,8 +94,22 @@
         return { ...item, checked: Object.fromEntries(item.checked.map((day) => [day, true])) };
       })) };
     }
-    if (module === "reading" && value.highlights) {
-      return { ...value, highlights: Object.fromEntries(Object.entries(value.highlights).map(([id, marks]) => [id, byId(marks)])) };
+    if (module === "reading") {
+      const { bookmarks, ...reading } = value;
+      if (!isRecord(reading.bookmarkLocations) && Array.isArray(bookmarks)) {
+        reading.bookmarkLocations = Object.create(null);
+        for (const item of bookmarks) {
+          const match = typeof item === "string" && /^(.+)\/(\d+)$/.exec(item);
+          if (!match || Number(match[2]) < 1) continue;
+          const [, id, chapter] = match;
+          const position = Number(chapter) - 1;
+          const place = reading.places?.[id];
+          if (place && reading.bookmarkLocations[id]?.position === place.position) continue;
+          reading.bookmarkLocations[id] = { position, y: place?.position === position ? place.y : 0 };
+        }
+      }
+      if (reading.highlights) reading.highlights = Object.fromEntries(Object.entries(reading.highlights).map(([id, marks]) => [id, byId(marks)]));
+      return reading;
     }
     if (module === "vocabulary" &&
         (!isRecord(value.words) || !Object.values(value.words).every(isRecord))) {
@@ -165,7 +194,12 @@
   }
 
   window.HarveyCloud = {
-    changed() { window.dispatchEvent(new Event("harvey-cloud-change")); },
+    changed() {
+      window.dispatchEvent(new Event("harvey-cloud-change"));
+      if (window !== window.top && location.origin !== "null") {
+        window.parent.postMessage({ type: "harvey-cloud-change" }, location.origin);
+      }
+    },
     enabled() { return Boolean(connection()?.owner); },
     recoverIeltsHighlights,
   };
@@ -281,7 +315,11 @@
       const results = await Promise.allSettled(Object.keys(modules).map((module) =>
         syncModule(api, settings, data.session, module, rows.data.find((row) => row.module === module))
       ));
-      if (results.some((result) => result.status === "rejected")) throw new Error("有模块未能同步");
+      const failed = Object.keys(modules).filter((_, i) => results[i].status === "rejected");
+      if (failed.length) {
+        report("部分同步未完成：" + failed.join("、") + "。这些记录保留在本机。");
+        return;
+      }
       if (!signingOut) report("上次同步 " + new Date().toLocaleTimeString());
     };
     try {
@@ -306,13 +344,16 @@
   }
 
   window.addEventListener("harvey-cloud-change", () => schedule());
+  window.addEventListener("message", event => {
+    if (event.origin === location.origin && event.data?.type === "harvey-cloud-change") schedule();
+  });
   window.addEventListener("storage", (event) => {
     if ((event.key === connectionKey || Object.values(modules).includes(event.key)) && event.isTrusted) schedule();
   });
   window.addEventListener("online", () => schedule(0));
   window.addEventListener("pageshow", () => schedule(0));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(0); });
-  setInterval(() => { if (!document.hidden) schedule(0); }, 45000);
+  setInterval(() => { if (!document.hidden) schedule(0); }, 15000);
   schedule(0);
 
   if (!dialog) return;
@@ -350,8 +391,11 @@
       const file = backupInput.files[0];
       if (!file || file.size > 25 * 1024 * 1024) throw new Error("文件无效");
       const input = JSON.parse(await file.text());
-      if (input?.version !== 1 || !isRecord(input.progress)) throw new Error("备份格式无效");
-      const entries = Object.entries(input.progress).map(([module, data]) => {
+      const progress = input?.version === 1 && isRecord(input.progress) ? input.progress :
+        input?.version === 1 && Array.isArray(input.items) ? { workspace: input } :
+        isRecord(input?.words) ? { vocabulary: input } : null;
+      if (!progress) throw new Error("备份格式无效");
+      const entries = Object.entries(progress).map(([module, data]) => {
         if (!Object.hasOwn(modules, module)) throw new Error("未知模块");
         const imported = normalize(module, data);
         const local = normalize(module, stored(modules[module]));

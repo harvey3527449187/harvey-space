@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="space.css">
   <link rel="stylesheet" href="module-nav.css">
   <link rel="stylesheet" href="workspace.css">
-  <script src="harvey-cloud.js?v=2" defer></script>
+  <script src="harvey-cloud.js?v=3" defer></script>
   <script src="workspace.js" defer></script>
 </head>
 <body>
@@ -144,7 +144,7 @@
       <button type="button" class="close-dialog" data-cloud-close aria-label="关闭">×</button>
     </div>
     <div class="cloud-dialog-content">
-      <p class="dialog-info">用同一个 Supabase 账号在各设备上登录。本机现有进度会与云端合并。</p>
+      <p class="dialog-info">在每台设备登录同一个同步账号。本机记录会与云端合并，后续修改会自动同步。以前从其他网址或本地文件使用的记录，可以先从原处导出，再在这里导入。</p>
       <form class="workspace-form" method="post">
         <label class="form-field">Supabase 项目地址 <input name="url" type="url" placeholder="https://你的项目.supabase.co" required></label>
         <label class="form-field">Publishable key <input name="key" placeholder="sb_publishable_…" autocomplete="off" spellcheck="false" required></label>
